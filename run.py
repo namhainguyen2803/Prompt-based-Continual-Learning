@@ -20,8 +20,6 @@ def create_args():
     # Standard Args
     parser.add_argument('--gpuid', nargs="+", type=int, default=[0],
                          help="The list of gpuid, ex:--gpuid 3 1. Negative value means cpu-only")
-    parser.add_argument('--log_dir', type=str, default="outputs/out",
-                         help="Save experiments results in dir for future plotting!")
     parser.add_argument('--learner_type', type=str, default='default', help="The type (filename) of learner")
     parser.add_argument('--learner_name', type=str, default='NormalNN', help="The class name of learner")
     parser.add_argument('--debug_mode', type=int, default=0, metavar='N',

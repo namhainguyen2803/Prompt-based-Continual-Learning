@@ -1,10 +1,3 @@
-import os
-import sys
-import argparse
-import torch
-import numpy as np
-import random
-from random import shuffle
 from collections import OrderedDict
 import dataloaders
 from dataloaders.utils import *
@@ -93,8 +86,6 @@ class Trainer:
                                 download_flag=False, transform=test_transform, 
                                 seed=self.seed, rand_split=args.rand_split, validation=args.validation)
 
-        # for oracle
-        self.oracle_flag = args.oracle_flag
         self.add_dim = 0
 
         # Prepare the self.learner (model)
@@ -156,19 +147,11 @@ class Trainer:
 
             # load dataset for task
             task = self.tasks_logits[i]
-            if self.oracle_flag:
-                self.train_dataset.load_dataset(i, train=False)
-                self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
-                self.add_dim += len(task)
-            else:
-                self.train_dataset.load_dataset(i, train=True)
-                self.add_dim = len(task)
+            self.train_dataset.load_dataset(i, train=True)
+            self.add_dim = len(task)
 
             # set task id for model (needed for prompting)
-            try:
-                self.learner.model.module.task_id = i
-            except:
-                self.learner.model.task_id = i
+            self.learner.model.task_id = i
 
             # add valid class to classifier
             self.learner.add_valid_output_dim(self.add_dim)
@@ -181,12 +164,8 @@ class Trainer:
 
             # increment task id in prompting modules
             if i > 0:
-                try:
-                    if self.learner.model.module.prompt is not None:
-                        self.learner.model.module.prompt.process_task_count()
-                except:
-                    if self.learner.model.prompt is not None:
-                        self.learner.model.prompt.process_task_count()
+                if self.learner.model.prompt is not None:
+                    self.learner.model.prompt.process_task_count()
 
             # learn
             self.test_dataset.load_dataset(i, train=False)
@@ -212,7 +191,8 @@ class Trainer:
                 save_file = temp_dir + mkey + '.csv'
                 np.savetxt(save_file, np.asarray(temp_table[mkey]), delimiter=",", fmt='%.2f')  
 
-            if avg_train_time is not None: avg_metrics['time']['global'][i] = avg_train_time
+            if avg_train_time is not None:
+                avg_metrics['time']['global'][i] = avg_train_time
 
         return avg_metrics 
     
@@ -257,12 +237,8 @@ class Trainer:
 
             # increment task id in prompting modules
             if i > 0:
-                try:
-                    if self.learner.model.module.prompt is not None:
-                        self.learner.model.module.prompt.process_task_count()
-                except:
-                    if self.learner.model.prompt is not None:
-                        self.learner.model.prompt.process_task_count()
+                if self.learner.model.prompt is not None:
+                    self.learner.model.prompt.process_task_count()
 
             # load model
             model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
@@ -272,10 +248,7 @@ class Trainer:
             self.learner.load_model(model_save_dir)
 
             # set task id for model (needed for prompting)
-            try:
-                self.learner.model.module.task_id = i
-            except:
-                self.learner.model.task_id = i
+            self.learner.model.task_id = i
 
             # evaluate acc
             metric_table['acc'][self.task_names[i]] = OrderedDict()

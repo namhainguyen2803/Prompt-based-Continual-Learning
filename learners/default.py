@@ -2,15 +2,9 @@ from __future__ import print_function
 import math
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
-from types import MethodType
 import models
 from utils.metric import accuracy, AverageMeter, Timer
 import numpy as np
-from torch.optim import Optimizer
-import contextlib
-import os
-import copy
 from utils.schedulers import CosineSchedule
 
 class NormalNN(nn.Module):
@@ -67,68 +61,59 @@ class NormalNN(nn.Module):
     ##########################################
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
-        
-        # try to load model
-        need_train = True
-        if not self.overwrite:
-            try:
-                self.load_model(model_save_dir)
-                need_train = False
-            except:
-                pass
+
 
         # trains
         if self.reset_optimizer:  # Reset optimizer before learning each task
             self.log('Optimizer is reset!')
             self.init_optimizer()
 
-        if need_train:
-            # data weighting
-            self.data_weighting(train_dataset)
+        # data weighting
+        self.data_weighting(train_dataset)
+        losses = AverageMeter()
+        acc = AverageMeter()
+        batch_time = AverageMeter()
+        batch_timer = Timer()
+        for epoch in range(self.config['schedule'][-1]):
+            self.epoch=epoch
+
+            if epoch > 0:
+                self.scheduler.step()
+            for param_group in self.optimizer.param_groups:
+                self.log('LR:', param_group['lr'])
+
+            batch_timer.tic()
+            for i, (x, y, task)  in enumerate(train_loader):
+
+                # verify in train mode
+                self.model.train()
+
+                # send data to gpu
+                if self.gpu:
+                    x = x.cuda()
+                    y = y.cuda()
+
+                # model update
+                loss, output= self.update_model(x, y)
+
+                # measure elapsed time
+                batch_time.update(batch_timer.toc())
+                batch_timer.tic()
+
+                # measure accuracy and record loss
+                y = y.detach()
+                accumulate_acc(output, y, task, acc, topk=(self.top_k,))
+                losses.update(loss,  y.size(0))
+                batch_timer.tic()
+
+            # eval update
+            self.log('Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=self.epoch+1,total=self.config['schedule'][-1]))
+            self.log(' * Loss {loss.avg:.3f} | Train Acc {acc.avg:.3f}'.format(loss=losses,acc=acc))
+
+            # reset
             losses = AverageMeter()
             acc = AverageMeter()
-            batch_time = AverageMeter()
-            batch_timer = Timer()
-            for epoch in range(self.config['schedule'][-1]):
-                self.epoch=epoch
 
-                if epoch > 0:
-                    self.scheduler.step()
-                for param_group in self.optimizer.param_groups:
-                    self.log('LR:', param_group['lr'])
-
-                batch_timer.tic()
-                for i, (x, y, task)  in enumerate(train_loader):
-
-                    # verify in train mode
-                    self.model.train()
-
-                    # send data to gpu
-                    if self.gpu:
-                        x = x.cuda()
-                        y = y.cuda()
-                    
-                    # model update
-                    loss, output= self.update_model(x, y)
-
-                    # measure elapsed time
-                    batch_time.update(batch_timer.toc())  
-                    batch_timer.tic()
-                    
-                    # measure accuracy and record loss
-                    y = y.detach()
-                    accumulate_acc(output, y, task, acc, topk=(self.top_k,))
-                    losses.update(loss,  y.size(0)) 
-                    batch_timer.tic()
-
-                # eval update
-                self.log('Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=self.epoch+1,total=self.config['schedule'][-1]))
-                self.log(' * Loss {loss.avg:.3f} | Train Acc {acc.avg:.3f}'.format(loss=losses,acc=acc))
-
-                # reset
-                losses = AverageMeter()
-                acc = AverageMeter()
-                
         self.model.eval()
 
         self.last_valid_out_dim = self.valid_out_dim
@@ -148,7 +133,7 @@ class NormalNN(nn.Module):
         loss_supervised = (self.criterion_fn(logits, targets.long()) * data_weights).mean()
         return loss_supervised 
 
-    def update_model(self, inputs, targets, target_scores = None, dw_force = None, kd_index = None):
+    def update_model(self, inputs, targets):
         
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         logits = self.forward(inputs)

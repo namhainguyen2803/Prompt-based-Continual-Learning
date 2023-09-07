@@ -5,15 +5,13 @@
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from functools import partial
-
+import numpy as np
 from timm.models.vision_transformer import _cfg, PatchEmbed, resize_pos_embed
-from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_, DropPath
 from timm.models.helpers import named_apply, adapt_input_conv
 
-class Mlp(nn.Module):
+class MLP(nn.Module):
     """ MLP as used in Vision Transformer, MLP-Mixer and related networks
     """
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
@@ -45,22 +43,8 @@ class Attention(nn.Module):
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
-        self.attn_gradients = None
-        self.attention_map = None
-        
-    def save_attn_gradients(self, attn_gradients):
-        self.attn_gradients = attn_gradients
-        
-    def get_attn_gradients(self):
-        return self.attn_gradients
     
-    def save_attention_map(self, attention_map):
-        self.attention_map = attention_map
-        
-    def get_attention_map(self):
-        return self.attention_map
-    
-    def forward(self, x, register_hook=False, prompt=None):
+    def forward(self, x, prompt=None):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
@@ -75,10 +59,6 @@ class Attention(nn.Module):
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
-                
-        if register_hook:
-            self.save_attention_map(attn)
-            attn.register_hook(self.save_attn_gradients)        
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
@@ -98,11 +78,10 @@ class Block(nn.Module):
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+        self.mlp = MLP(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
-
-    def forward(self, x, register_hook=False, prompt=None):
-        x = x + self.drop_path(self.attn(self.norm1(x), register_hook=register_hook, prompt=prompt))
+    def forward(self, x, prompt=None):
+        x = x + self.drop_path(self.attn(self.norm1(x), prompt=prompt))
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
@@ -112,7 +91,7 @@ class VisionTransformer(nn.Module):
     A PyTorch impl of : `An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale`  -
         https://arxiv.org/abs/2010.11929
     """
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, embedding_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None):
         """
@@ -121,7 +100,7 @@ class VisionTransformer(nn.Module):
             patch_size (int, tuple): patch size
             in_chans (int): number of input channels
             num_classes (int): number of classes for classification head
-            embed_dim (int): embedding dimension
+            embedding_dim (int): embedding dimension
             depth (int): depth of transformer
             num_heads (int): number of attention heads
             mlp_ratio (int): ratio of mlp hidden dim to embedding dim
@@ -133,31 +112,32 @@ class VisionTransformer(nn.Module):
             norm_layer: (nn.Module): normalization layer
         """
         super().__init__()
-        self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
+        self.num_features = embedding_dim
+        self.embedding_dim = embedding_dim  # num_features for consistency with other models
         norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
 
-        self.patch_embed = PatchEmbed(img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
+        self.patch_embed = PatchEmbed(img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embedding_dim)
 
         num_patches = self.patch_embed.num_patches
 
         # there is unique class_token, meaning class_token is shared among instances
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) # class token, corresponding to first vector embedding
+        self.class_token = nn.Parameter(torch.zeros(1, 1, embedding_dim)) # class token, corresponding to first vector embedding
         # positional_embedding, used to adding with flatten_patches vector
         # again, there is only one positional embedding, and in posisional embedding, there are num_patches+1 position to be embedded
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim)) # position embedding
+        self.positional_embedding = nn.Parameter(torch.zeros(1, num_patches + 1, embedding_dim)) # position embedding
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         self.blocks = nn.ModuleList([
             Block(
-                dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                dim=embedding_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer,
                 )
             for i in range(depth)])
-        self.norm = norm_layer(embed_dim)
+        self.norm = norm_layer(embedding_dim)
 
-        trunc_normal_(self.pos_embed, std=.02)
-        trunc_normal_(self.cls_token, std=.02)
+        trunc_normal_(self.positional_embedding, std=.02)
+        trunc_normal_(self.class_token, std=.02)
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
@@ -169,21 +149,17 @@ class VisionTransformer(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    @torch.jit.ignore
-    def no_weight_decay(self):
-        return {'pos_embed', 'cls_token'}
-
-    def forward(self, x, block_id_for_register_hook=-1, prompt=None, q=None, train=False, task_id=None):
+    def forward(self, x, prompt=None, q=None, train=False, task_id=None):
         B = x.shape[0] # number of instances in a batch
         patch_x = self.patch_embed(x) # output of Embedding Patch layer
 
         # class token, basically this line of code is used for copycatting class token to each instance in the batch
         # there is only unique class token, meaning class_token is shared among instances
-        cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
+        cls_tokens = self.class_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         # embed class_token to flatten_patches
         x = torch.cat((cls_tokens, patch_x), dim=1)
         # add positional embedding to flatten_patches
-        x = x + self.pos_embed[:,:x.size(1),:]
+        x = x + self.positional_embedding[:, :x.size(1), :]
         x = self.pos_drop(x)
 
         # loss function(?) since we fix weight of pretrained model and update prompt parameters
@@ -198,11 +174,7 @@ class VisionTransformer(nn.Module):
                     p_list, _, x = prompt.forward(q, i, x, train=False, task_id=task_id)
             else:
                 p_list = None
-            # if register_hook_for_block_id == -1 then no need to have register_hook for each Block
-            if block_id_for_register_hook == i:
-                x = block(x=x, register_hook=True, prompt=p_list)
-            else:
-                x = block(x=x, register_hook=False, prompt=p_list)
+            x = block(x=x, prompt=p_list)
 
         x = self.norm(x)
         
@@ -217,7 +189,6 @@ class VisionTransformer(nn.Module):
 def _load_weights(model: VisionTransformer, checkpoint_path: str, prefix: str = ''):
     """ Load weights from .npz checkpoints for official Google Brain Flax implementation
     """
-    import numpy as np
 
     def _n2p(w, t=True):
         if w.ndim == 4 and w.shape[0] == w.shape[1] == w.shape[2] == 1:
@@ -261,20 +232,14 @@ def _load_weights(model: VisionTransformer, checkpoint_path: str, prefix: str = 
             model.patch_embed.proj.weight.shape[1], _n2p(w[f'{prefix}embedding/kernel']))
     model.patch_embed.proj.weight.copy_(embed_conv_w)
     model.patch_embed.proj.bias.copy_(_n2p(w[f'{prefix}embedding/bias']))
-    model.cls_token.copy_(_n2p(w[f'{prefix}cls'], t=False))
+    model.class_token.copy_(_n2p(w[f'{prefix}cls'], t=False))
     pos_embed_w = _n2p(w[f'{prefix}Transformer/posembed_input/pos_embedding'], t=False)
-    if pos_embed_w.shape != model.pos_embed.shape:
+    if pos_embed_w.shape != model.positional_embedding.shape:
         pos_embed_w = resize_pos_embed(  # resize pos embedding when different size from pretrained weights
-            pos_embed_w, model.pos_embed, getattr(model, 'num_tokens', 1), model.patch_embed.grid_size)
-    model.pos_embed.copy_(pos_embed_w)
+            pos_embed_w, model.positional_embedding, getattr(model, 'num_tokens', 1), model.patch_embed.grid_size)
+    model.positional_embedding.copy_(pos_embed_w)
     model.norm.weight.copy_(_n2p(w[f'{prefix}Transformer/encoder_norm/scale']))
     model.norm.bias.copy_(_n2p(w[f'{prefix}Transformer/encoder_norm/bias']))
-#     if isinstance(model.head, nn.Linear) and model.head.bias.shape[0] == w[f'{prefix}head/bias'].shape[-1]:
-#         model.head.weight.copy_(_n2p(w[f'{prefix}head/kernel']))
-#         model.head.bias.copy_(_n2p(w[f'{prefix}head/bias']))
-#     if isinstance(getattr(model.pre_logits, 'fc', None), nn.Linear) and f'{prefix}pre_logits/bias' in w:
-#         model.pre_logits.fc.weight.copy_(_n2p(w[f'{prefix}pre_logits/kernel']))
-#         model.pre_logits.fc.bias.copy_(_n2p(w[f'{prefix}pre_logits/bias']))
     for i, block in enumerate(model.blocks.children()):
         block_prefix = f'{prefix}Transformer/encoderblock_{i}/'
         mha_prefix = block_prefix + 'MultiHeadDotProductAttention_1/'
@@ -297,7 +262,7 @@ def interpolate_pos_embed(pos_embed_checkpoint, visual_encoder):
     # interpolate position embedding
     embedding_size = pos_embed_checkpoint.shape[-1]
     num_patches = visual_encoder.patch_embed.num_patches
-    num_extra_tokens = visual_encoder.pos_embed.shape[-2] - num_patches
+    num_extra_tokens = visual_encoder.positional_embedding.shape[-2] - num_patches
     # height (== width) for the checkpoint position embedding
     orig_size = int((pos_embed_checkpoint.shape[-2] - num_extra_tokens) ** 0.5)
     # height (== width) for the new position embedding
