@@ -6,16 +6,16 @@ from timm.models import vit_base_patch16_224
 
 class L2P(nn.Module):
     """class used to manage the prompt thing, such as updating, forward, ..."""
-    def __init__(self, embedding_dimension, prompt_param, key_dimension=768):
+    def __init__(self, embed_dim, prompt_param, key_dimension=768):
         super(L2P, self).__init__()
 
         self.task_count = 0
-        self.embedding_dimension = embedding_dimension
+        self.embed_dim = embed_dim
         self.key_dimension = key_dimension
         self._init_smart(prompt_param)
 
         for e in self.e_layers:
-            p = tensor_prompt(self.e_pool_size, self.e_p_length, self.embedding_dimension) # prompt parameter
+            p = tensor_prompt(self.e_pool_size, self.e_p_length, self.embed_dim) # prompt parameter
             k = tensor_prompt(self.e_pool_size, self.key_dimension) # key parameter
             setattr(self, f'e_p_{e}',p)
             setattr(self, f'e_k_{e}',k)
@@ -58,8 +58,8 @@ class L2P(nn.Module):
 
             i = int(self.e_p_length/2) # select the middle index of prompt
             # selected_prompt[:,:,:i,:].shape = (B, self.top_k, i, self.embedding_dimension)
-            Ek = selected_prompt[:,:,:i,:].reshape((B,-1,self.embedding_dimension))
-            Ev = selected_prompt[:,:,i:,:].reshape((B,-1,self.embedding_dimension))
+            Ek = selected_prompt[:,:,:i,:].reshape((B,-1,self.embed_dim))
+            Ev = selected_prompt[:,:,i:,:].reshape((B,-1,self.embed_dim))
             p_return = [Ek, Ev]
 
         return p_return, loss, x
@@ -88,7 +88,7 @@ class ViTZoo(nn.Module):
         self.task_id = None
 
         # get feature encoder
-        zoo_model = VisionTransformer(img_size=224, patch_size=16, embedding_dim=768, depth=12,
+        zoo_model = VisionTransformer(img_size=224, patch_size=16, embed_dim=768, depth=12,
                                       num_heads=12, drop_path_rate=0)
 
         if pt:

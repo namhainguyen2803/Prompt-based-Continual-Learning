@@ -91,7 +91,7 @@ class VisionTransformer(nn.Module):
     A PyTorch impl of : `An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale`  -
         https://arxiv.org/abs/2010.11929
     """
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, embedding_dim=768, depth=12,
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None):
         """
@@ -100,7 +100,7 @@ class VisionTransformer(nn.Module):
             patch_size (int, tuple): patch size
             in_chans (int): number of input channels
             num_classes (int): number of classes for classification head
-            embedding_dim (int): embedding dimension
+            embed_dim (int): embedding dimension
             depth (int): depth of transformer
             num_heads (int): number of attention heads
             mlp_ratio (int): ratio of mlp hidden dim to embedding dim
@@ -112,32 +112,32 @@ class VisionTransformer(nn.Module):
             norm_layer: (nn.Module): normalization layer
         """
         super().__init__()
-        self.num_features = embedding_dim
-        self.embedding_dim = embedding_dim  # num_features for consistency with other models
+        self.num_features = embed_dim
+        self.embed_dim = embed_dim  # num_features for consistency with other models
         norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
 
-        self.patch_embed = PatchEmbed(img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embedding_dim)
+        self.patch_embed = PatchEmbed(img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
 
         num_patches = self.patch_embed.num_patches
 
         # there is unique class_token, meaning class_token is shared among instances
-        self.class_token = nn.Parameter(torch.zeros(1, 1, embedding_dim)) # class token, corresponding to first vector embedding
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) # class token, corresponding to first vector embedding
         # positional_embedding, used to adding with flatten_patches vector
         # again, there is only one positional embedding, and in posisional embedding, there are num_patches+1 position to be embedded
-        self.positional_embedding = nn.Parameter(torch.zeros(1, num_patches + 1, embedding_dim)) # position embedding
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim)) # position embedding
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         self.blocks = nn.ModuleList([
             Block(
-                dim=embedding_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer,
                 )
             for i in range(depth)])
-        self.norm = norm_layer(embedding_dim)
+        self.norm = norm_layer(embed_dim)
 
-        trunc_normal_(self.positional_embedding, std=.02)
-        trunc_normal_(self.class_token, std=.02)
+        trunc_normal_(self.pos_embed, std=.02)
+        trunc_normal_(self.cls_token, std=.02)
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
@@ -155,11 +155,11 @@ class VisionTransformer(nn.Module):
 
         # class token, basically this line of code is used for copycatting class token to each instance in the batch
         # there is only unique class token, meaning class_token is shared among instances
-        cls_tokens = self.class_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
+        cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         # embed class_token to flatten_patches
         x = torch.cat((cls_tokens, patch_x), dim=1)
         # add positional embedding to flatten_patches
-        x = x + self.positional_embedding[:, :x.size(1), :]
+        x = x + self.pos_embed[:, :x.size(1), :]
         x = self.pos_drop(x)
 
         # loss function(?) since we fix weight of pretrained model and update prompt parameters
@@ -232,12 +232,12 @@ def _load_weights(model: VisionTransformer, checkpoint_path: str, prefix: str = 
             model.patch_embed.proj.weight.shape[1], _n2p(w[f'{prefix}embedding/kernel']))
     model.patch_embed.proj.weight.copy_(embed_conv_w)
     model.patch_embed.proj.bias.copy_(_n2p(w[f'{prefix}embedding/bias']))
-    model.class_token.copy_(_n2p(w[f'{prefix}cls'], t=False))
+    model.cls_token.copy_(_n2p(w[f'{prefix}cls'], t=False))
     pos_embed_w = _n2p(w[f'{prefix}Transformer/posembed_input/pos_embedding'], t=False)
-    if pos_embed_w.shape != model.positional_embedding.shape:
+    if pos_embed_w.shape != model.pos_embed.shape:
         pos_embed_w = resize_pos_embed(  # resize pos embedding when different size from pretrained weights
-            pos_embed_w, model.positional_embedding, getattr(model, 'num_tokens', 1), model.patch_embed.grid_size)
-    model.positional_embedding.copy_(pos_embed_w)
+            pos_embed_w, model.pos_embed, getattr(model, 'num_tokens', 1), model.patch_embed.grid_size)
+    model.pos_embed.copy_(pos_embed_w)
     model.norm.weight.copy_(_n2p(w[f'{prefix}Transformer/encoder_norm/scale']))
     model.norm.bias.copy_(_n2p(w[f'{prefix}Transformer/encoder_norm/bias']))
     for i, block in enumerate(model.blocks.children()):
@@ -262,7 +262,7 @@ def interpolate_pos_embed(pos_embed_checkpoint, visual_encoder):
     # interpolate position embedding
     embedding_size = pos_embed_checkpoint.shape[-1]
     num_patches = visual_encoder.patch_embed.num_patches
-    num_extra_tokens = visual_encoder.positional_embedding.shape[-2] - num_patches
+    num_extra_tokens = visual_encoder.pos_embed.shape[-2] - num_patches
     # height (== width) for the checkpoint position embedding
     orig_size = int((pos_embed_checkpoint.shape[-2] - num_extra_tokens) ** 0.5)
     # height (== width) for the new position embedding
