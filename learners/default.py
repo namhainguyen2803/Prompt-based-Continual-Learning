@@ -19,7 +19,6 @@ class NormalNN(nn.Module):
         self.out_dim = learner_config['out_dim']
         self.model = self.create_model()
         self.reset_optimizer = True
-        self.overwrite = learner_config['overwrite']
         self.batch_size = learner_config['batch_size']
         self.tasks = learner_config['tasks']
         self.top_k = learner_config['top_k']

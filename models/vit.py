@@ -168,10 +168,10 @@ class VisionTransformer(nn.Module):
 
             if prompt is not None:
                 if train:
-                    p_list, loss, x = prompt.forward(q, i, x, train=True, task_id=task_id)
+                    p_list, loss, x = prompt(q, i, x, train=True)
                     prompt_loss += loss
                 else:
-                    p_list, _, x = prompt.forward(q, i, x, train=False, task_id=task_id)
+                    p_list, _, x = prompt(q, i, x, train=False)
             else:
                 p_list = None
             x = block(x=x, prompt=p_list)
