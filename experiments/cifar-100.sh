@@ -7,7 +7,7 @@ N_CLASS=100
 OUTDIR=outputs/${DATASET}/10-task
 
 # hard coded inputs
-GPUID='0 1 2 3'
+GPUID='0'
 CONFIG=configs/cifar-100_prompt.yaml
 REPEAT=1
 OVERWRITE=0

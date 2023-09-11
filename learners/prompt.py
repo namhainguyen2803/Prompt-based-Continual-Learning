@@ -140,12 +140,12 @@ class L2P(Prompt):
 
 class ContrastivePrototypicalPrompt(Prompt):
 
-    def __int__(self, learner_config):
+    def __init__(self, learner_config):
+        self._reset_MLP_neck()
         super(ContrastivePrototypicalPrompt, self).__init__(learner_config)
         self.key_prototype = dict()
         self.perturbed_prototype = dict()
         self.contrastive_loss = SelfSupConLoss().cuda()
-        self._reset_MLP_neck()
         self._generate_mapping_class_to_task() # generate mapping from class_id to task_id, used for evaluation
 
     def create_model(self):
@@ -245,7 +245,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def _generate_mapping_class_to_task(self):
         self.mapping_class_to_task = dict()
-        for task_id, class_id_list in self.tasks:
+        for task_id, class_id_list in enumerate(self.tasks):
             for class_id in class_id_list:
                 self.mapping_class_to_task[class_id] = task_id
 

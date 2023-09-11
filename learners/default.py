@@ -52,9 +52,6 @@ class NormalNN(nn.Module):
         self.schedule_type = self.config['schedule_type']
         self.schedule = self.config['schedule']
 
-        # initialize optimizer
-        self.init_optimizer()
-
     ##########################################
     #           MODEL TRAINING               #
     ##########################################
