@@ -217,17 +217,19 @@ class ContrastivePrototypicalPrompt(Prompt):
         # logits
         last_feature, logits, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
         z_feature = self.MLP_neck(last_feature)
-
-        # retrieve all perturbed prototype set in a single tensor
-        all_previous_perturbed_prototype = list()
-        all_previous_prototype_labels = list()
-        for class_id, perturbed_set in self.perturbed_prototype:
-            all_previous_perturbed_prototype.append(perturbed_set)
-            all_previous_prototype_labels.append([class_id] * perturbed_set.shape[0])
-        all_previous_perturbed_prototype = torch.cat(all_previous_perturbed_prototype, dim=0)
-        all_previous_prototype_labels = torch.cat(all_previous_prototype_labels, dim=0)
-        z_feature = torch.cat((z_feature, all_previous_perturbed_prototype), dim=0)
-        labels_of_z_feature = torch.cat((targets, all_previous_prototype_labels), dim=0)
+        if self.task_count > 1:
+            # retrieve all perturbed prototype set in a single tensor
+            all_previous_perturbed_prototype = list()
+            all_previous_prototype_labels = list()
+            for class_id, perturbed_set in self.perturbed_prototype:
+                all_previous_perturbed_prototype.append(perturbed_set)
+                all_previous_prototype_labels.append([class_id] * perturbed_set.shape[0])
+            all_previous_perturbed_prototype = torch.cat(all_previous_perturbed_prototype, dim=0)
+            all_previous_prototype_labels = torch.cat(all_previous_prototype_labels, dim=0)
+            z_feature = torch.cat((z_feature, all_previous_perturbed_prototype), dim=0)
+            labels_of_z_feature = torch.cat((targets, all_previous_prototype_labels), dim=0)
+        else:
+            labels_of_z_feature = targets
 
         contrastive_loss = self.criterion_fn(features=z_feature, labels=labels_of_z_feature, target_labels=targets)
         total_loss = contrastive_loss + prompt_loss.sum()
