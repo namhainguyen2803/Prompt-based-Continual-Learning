@@ -1,0 +1,84 @@
+Index: models/zoo.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>import torch\nimport torch.nn as nn\nfrom .vit import VisionTransformer\nfrom timm.models import vit_base_patch16_224\nfrom l2p_prompt import L2P\n\nclass ViTZoo(nn.Module):\n    def __init__(self, num_classes=10, pt=True, prompt_flag='l2p', prompt_param=None):\n        super(ViTZoo, self).__init__()\n\n        # get last layer\n        self.last = nn.Linear(512, num_classes)\n        self.prompt_flag = prompt_flag\n        self.task_id = None\n\n        # get feature encoder\n        zoo_model = VisionTransformer(img_size=224, patch_size=16, embed_dim=768, depth=12,\n                                      num_heads=12, drop_path_rate=0)\n\n        if pt:\n            load_dict = vit_base_patch16_224(pretrained=True).state_dict()\n            del load_dict['head.weight']; del load_dict['head.bias']\n            zoo_model.load_state_dict(load_dict)\n\n        # classifier\n        self.last = nn.Linear(768, num_classes)\n\n        # create prompting module\n        if self.prompt_flag == 'l2p':\n            self.prompt = L2P(768, prompt_param[1])\n        else:\n            self.prompt = None\n\n        # feature encoder changes if transformer vs resnet\n        self.feature_encoder = zoo_model\n\n    # pen: get penultimate features\n    def forward(self, x, pen=False, train=False):\n        prompt_loss = 0\n        if self.prompt is not None:\n            with torch.no_grad():\n                q, _ = self.feature_encoder(x)\n                q = q[:,0,:].detach().clone() # [class] token!!!, having shape == (B, 1, self.embedding_dimension)\n            out, prompt_loss = self.feature_encoder(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id)\n            out = out[:,0,:]\n        else:\n            out, _ = self.feature_encoder(x)\n            out = out[:,0,:]\n        out = out.view(out.size(0), -1)\n        if pen == False:\n            out = self.last(out)\n        if self.prompt is not None and train:\n            return out, prompt_loss\n        else:\n            return out\n\ndef vit_pt_imnet(out_dim, prompt_flag = 'l2p', prompt_param=None):\n    return ViTZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param)
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/models/zoo.py b/models/zoo.py
+--- a/models/zoo.py	(revision fcd236ea67d3e6cfd482a47d0ae63f4c3d0d89c8)
++++ b/models/zoo.py	(date 1694273259223)
+@@ -41,7 +41,7 @@
+             with torch.no_grad():
+                 q, _ = self.feature_encoder(x)
+                 q = q[:,0,:].detach().clone() # [class] token!!!, having shape == (B, 1, self.embedding_dimension)
+-            out, prompt_loss = self.feature_encoder(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id)
++            out, prompt_loss = self.feature_encoder(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id) # final feature representation!!!
+             out = out[:,0,:]
+         else:
+             out, _ = self.feature_encoder(x)
+Index: run.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>from __future__ import absolute_import\nfrom __future__ import division\nfrom __future__ import print_function\nfrom __future__ import unicode_literals\nimport os\nimport sys\nimport argparse\nimport torch\nimport numpy as np\nimport yaml\nimport json\nimport random\nfrom trainer import Trainer\n\ndef create_args():\n    \n    # This function prepares the variables shared across demo.py\n    parser = argparse.ArgumentParser()\n\n    # Standard Args\n    parser.add_argument('--gpuid', nargs=\"+\", type=int, default=[0],\n                         help=\"The list of gpuid, ex:--gpuid 3 1. Negative value means cpu-only\")\n    parser.add_argument('--log_dir', type=str, default=\"outputs/out\",\n                        help=\"Save experiments results in dir for future plotting!\")\n    parser.add_argument('--learner_type', type=str, default='default', help=\"The type (filename) of learner\")\n    parser.add_argument('--learner_name', type=str, default='NormalNN', help=\"The class name of learner\")\n    parser.add_argument('--debug_mode', type=int, default=0, metavar='N',\n                        help=\"activate learner specific settings for debug_mode\")\n    parser.add_argument('--repeat', type=int, default=1, help=\"Repeat the experiment N times\")\n\n    # CL Args          \n    parser.add_argument('--oracle_flag', default=False, action='store_true', help='Upper bound for oracle')\n    parser.add_argument('--upper_bound_flag', default=False, action='store_true', help='Upper bound')\n    parser.add_argument('--memory', type=int, default=0, help=\"size of memory for replay\")\n    parser.add_argument('--temp', type=float, default=2., dest='temp', help=\"temperature for distillation\")\n    parser.add_argument('--DW', default=False, action='store_true', help='dataset balancing')\n    parser.add_argument('--prompt_param', nargs=\"+\", type=float, default=[1, 1, 1],\n                         help=\"e prompt pool size, e prompt length, g prompt length\")\n\n    # Config Arg\n    parser.add_argument('--config', type=str, default=\"configs/config.yaml\",\n                         help=\"yaml experiment config input\")\n\n    return parser\n\ndef get_args(argv):\n    parser=create_args()\n    args = parser.parse_args(argv)\n    config = yaml.load(open(args.config, 'r'), Loader=yaml.Loader)\n    config.update(vars(args))\n    return argparse.Namespace(**config)\n\n# want to save everything printed to outfile\nclass Logger(object):\n    def __init__(self, name):\n        self.terminal = sys.stdout\n        self.log = open(name, \"a\")\n\n    def write(self, message):\n        self.terminal.write(message)\n        self.log.write(message)  \n\n    def flush(self):\n        self.log.flush()\n\nif __name__ == '__main__':\n    args = get_args(sys.argv[1:])\n\n    # determinstic backend\n    torch.backends.cudnn.deterministic=True\n\n    # duplicate output stream to output file\n    if not os.path.exists(args.log_dir): os.makedirs(args.log_dir)\n    log_out = args.log_dir + '/output.log'\n    sys.stdout = Logger(log_out)\n\n    # save args\n    with open(args.log_dir + '/args.yaml', 'w') as yaml_file:\n        yaml.dump(vars(args), yaml_file, default_flow_style=False)\n    \n    metric_keys = ['acc','time',]\n    save_keys = ['global', 'pt', 'pt-local']\n    global_only = ['time']\n    avg_metrics = {}\n    for mkey in metric_keys: \n        avg_metrics[mkey] = {}\n        for skey in save_keys: avg_metrics[mkey][skey] = []\n\n    # load results\n    if args.overwrite:\n        start_r = 0\n    else:\n        try:\n            for mkey in metric_keys: \n                for skey in save_keys:\n                    if (not (mkey in global_only)) or (skey == 'global'):\n                        save_file = args.log_dir+'/results-'+mkey+'/'+skey+'.yaml'\n                        if os.path.exists(save_file):\n                            with open(save_file, 'r') as yaml_file:\n                                yaml_result = yaml.safe_load(yaml_file)\n                                avg_metrics[mkey][skey] = np.asarray(yaml_result['history'])\n\n            # next repeat needed\n            start_r = avg_metrics[metric_keys[0]][save_keys[0]].shape[-1]\n\n            # extend if more repeats left\n            if start_r < args.repeat:\n                max_task = avg_metrics['acc']['global'].shape[0]\n                for mkey in metric_keys: \n                    avg_metrics[mkey]['global'] = np.append(avg_metrics[mkey]['global'], np.zeros((max_task,args.repeat-start_r)), axis=-1)\n                    if (not (mkey in global_only)):\n                        avg_metrics[mkey]['pt'] = np.append(avg_metrics[mkey]['pt'], np.zeros((max_task,max_task,args.repeat-start_r)), axis=-1)\n                        avg_metrics[mkey]['pt-local'] = np.append(avg_metrics[mkey]['pt-local'], np.zeros((max_task,max_task,args.repeat-start_r)), axis=-1)\n\n        except:\n            start_r = 0\n    # start_r = 0\n    for r in range(start_r, args.repeat):\n\n        print('************************************')\n        print('* STARTING TRIAL ' + str(r+1))\n        print('************************************')\n\n        # set random seeds\n        seed = r\n        random.seed(seed)\n        np.random.seed(seed)\n        torch.manual_seed(seed)\n        torch.cuda.manual_seed(seed)\n\n        # set up a trainer\n        trainer = Trainer(args, seed, metric_keys, save_keys)\n\n        # init total run metrics storage\n        max_task = trainer.max_task\n        if r == 0: \n            for mkey in metric_keys: \n                avg_metrics[mkey]['global'] = np.zeros((max_task,args.repeat))\n                if (not (mkey in global_only)):\n                    avg_metrics[mkey]['pt'] = np.zeros((max_task,max_task,args.repeat))\n                    avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,args.repeat))\n\n        # train model\n        avg_metrics = trainer.train(avg_metrics)  \n\n        # evaluate model\n        avg_metrics = trainer.evaluate(avg_metrics)    \n\n        # save results\n        for mkey in metric_keys: \n            m_dir = args.log_dir+'/results-'+mkey+'/'\n            if not os.path.exists(m_dir): os.makedirs(m_dir)\n            for skey in save_keys:\n                if (not (mkey in global_only)) or (skey == 'global'):\n                    save_file = m_dir+skey+'.yaml'\n                    result=avg_metrics[mkey][skey]\n                    yaml_results = {}\n                    if len(result.shape) > 2:\n                        yaml_results['mean'] = result[:,:,:r+1].mean(axis=2).tolist()\n                        if r>1: yaml_results['std'] = result[:,:,:r+1].std(axis=2).tolist()\n                        yaml_results['history'] = result[:,:,:r+1].tolist()\n                    else:\n                        yaml_results['mean'] = result[:,:r+1].mean(axis=1).tolist()\n                        if r>1: yaml_results['std'] = result[:,:r+1].std(axis=1).tolist()\n                        yaml_results['history'] = result[:,:r+1].tolist()\n                    with open(save_file, 'w') as yaml_file:\n                        yaml.dump(yaml_results, yaml_file, default_flow_style=False)\n\n        # Print the summary so far\n        print('===Summary of experiment repeats:',r+1,'/',args.repeat,'===')\n        for mkey in metric_keys: \n            print(mkey, ' | mean:', avg_metrics[mkey]['global'][-1,:r+1].mean(), 'std:', avg_metrics[mkey]['global'][-1,:r+1].std())\n    \n    \n\n\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/run.py b/run.py
+--- a/run.py	(revision fcd236ea67d3e6cfd482a47d0ae63f4c3d0d89c8)
++++ b/run.py	(date 1694273259226)
+@@ -87,33 +87,30 @@
+         for skey in save_keys: avg_metrics[mkey][skey] = []
+ 
+     # load results
+-    if args.overwrite:
+-        start_r = 0
+-    else:
+-        try:
+-            for mkey in metric_keys: 
+-                for skey in save_keys:
+-                    if (not (mkey in global_only)) or (skey == 'global'):
+-                        save_file = args.log_dir+'/results-'+mkey+'/'+skey+'.yaml'
+-                        if os.path.exists(save_file):
+-                            with open(save_file, 'r') as yaml_file:
+-                                yaml_result = yaml.safe_load(yaml_file)
+-                                avg_metrics[mkey][skey] = np.asarray(yaml_result['history'])
++    try:
++        for mkey in metric_keys:
++            for skey in save_keys:
++                if (not (mkey in global_only)) or (skey == 'global'):
++                    save_file = args.log_dir+'/results-'+mkey+'/'+skey+'.yaml'
++                    if os.path.exists(save_file):
++                        with open(save_file, 'r') as yaml_file:
++                            yaml_result = yaml.safe_load(yaml_file)
++                            avg_metrics[mkey][skey] = np.asarray(yaml_result['history'])
+ 
+-            # next repeat needed
+-            start_r = avg_metrics[metric_keys[0]][save_keys[0]].shape[-1]
++        # next repeat needed
++        start_r = avg_metrics[metric_keys[0]][save_keys[0]].shape[-1]
+ 
+-            # extend if more repeats left
+-            if start_r < args.repeat:
+-                max_task = avg_metrics['acc']['global'].shape[0]
+-                for mkey in metric_keys: 
+-                    avg_metrics[mkey]['global'] = np.append(avg_metrics[mkey]['global'], np.zeros((max_task,args.repeat-start_r)), axis=-1)
+-                    if (not (mkey in global_only)):
+-                        avg_metrics[mkey]['pt'] = np.append(avg_metrics[mkey]['pt'], np.zeros((max_task,max_task,args.repeat-start_r)), axis=-1)
+-                        avg_metrics[mkey]['pt-local'] = np.append(avg_metrics[mkey]['pt-local'], np.zeros((max_task,max_task,args.repeat-start_r)), axis=-1)
++        # extend if more repeats left
++        if start_r < args.repeat:
++            max_task = avg_metrics['acc']['global'].shape[0]
++            for mkey in metric_keys:
++                avg_metrics[mkey]['global'] = np.append(avg_metrics[mkey]['global'], np.zeros((max_task,args.repeat-start_r)), axis=-1)
++                if (not (mkey in global_only)):
++                    avg_metrics[mkey]['pt'] = np.append(avg_metrics[mkey]['pt'], np.zeros((max_task,max_task,args.repeat-start_r)), axis=-1)
++                    avg_metrics[mkey]['pt-local'] = np.append(avg_metrics[mkey]['pt-local'], np.zeros((max_task,max_task,args.repeat-start_r)), axis=-1)
+ 
+-        except:
+-            start_r = 0
++    except:
++        start_r = 0
+     # start_r = 0
+     for r in range(start_r, args.repeat):
+ 

@@ -7,16 +7,47 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from functools import partial
+import numpy as np
 
 from timm.models.vision_transformer import _cfg, PatchEmbed, resize_pos_embed
 from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_, DropPath
 from timm.models.helpers import named_apply, adapt_input_conv
 
+class MLP(nn.Module):
+    def __init__(self, in_feature=28*28, hidden_features=[256], out_feature=None, act_layer=nn.ReLU, drop=0.):
+        super().__init__()
+        self.in_feature = in_feature
+        self.out_feature = out_feature or self.in_feature
+        self.hidden_features = hidden_features
+        self.act = act_layer()
+        self.drop = nn.Dropout(drop)
+
+        self.net = nn.ModuleDict()
+        net_features = np.hstack((np.array([self.in_feature]), np.array(self.hidden_features)), np.array([self.out_feature]))
+        assert net_features == len(hidden_features) + 2, "Wrong in MLP class."
+        for idx in range(len(net_features) - 1):
+            fc_name = "fc" + str(idx+1)
+            act_name = "act" + str(idx+1)
+            drop_name = "drop" + str(idx+1)
+            self.net.update({
+                fc_name: nn.Linear(net_features[idx], net_features[idx+1]),
+                act_name: self.act,
+                drop_name: self.drop
+            })
+            if idx == len(net_features) - 2: # last layer, no need activation function
+                final_act = act_name
+                self.net.pop(final_act)
+
+    def forward(self, x):
+        out = self.net(x)
+        return out
+
 class Mlp(nn.Module):
     """ MLP as used in Vision Transformer, MLP-Mixer and related networks
     """
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -62,18 +93,23 @@ class Attention(nn.Module):
     
     def forward(self, x, register_hook=False, prompt=None):
         B, N, C = x.shape
+        # B is number of batch size
+        # N is number of feature vectors (number of patches sub images + 1)
+        # C is embedding dimension
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        # qkv shape == (3, B, self.num_heads, N, C // self.num_heads)
         q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
 
         if prompt is not None:
             pk, pv = prompt
             pk = pk.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
             pv = pv.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-            k = torch.cat((pk,k), dim=2)
-            v = torch.cat((pv,v), dim=2)
+            k = torch.cat((pk,k), dim=2) # shape == (B, self.num_heads, N + self.top_k * i, C // self.num_heads)
+            v = torch.cat((pv,v), dim=2) # shape == (B, self.num_heads, N + self.top_k * i, C // self.num_heads)
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
+        # q @ k.transpose(-2, -1) having shape == (B, self.num_heads, N, N + self.top_k * i)
+        attn = attn.softmax(dim=-1) # shape == (B, self.num_heads, N, N + self.top_k * i)
         attn = self.attn_drop(attn)
                 
         if register_hook:
@@ -81,6 +117,9 @@ class Attention(nn.Module):
             attn.register_hook(self.save_attn_gradients)        
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        # shape(attn @ v) == (B, self.num_heads, N, N + self.top_k * i) @ ..
+        # ..(B, self.num_heads, N + self.top_k * i, C // self.num_heads)
+        # == (B, self.num_heads, N, C // self.num_heads)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x

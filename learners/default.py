@@ -1,16 +1,9 @@
 from __future__ import print_function
-import math
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
-from types import MethodType
 import models
 from utils.metric import accuracy, AverageMeter, Timer
 import numpy as np
-from torch.optim import Optimizer
-import contextlib
-import os
-import copy
 from utils.schedulers import CosineSchedule
 
 class NormalNN(nn.Module):
@@ -73,9 +66,9 @@ class NormalNN(nn.Module):
         if not self.overwrite:
             try:
                 self.load_model(model_save_dir)
-                need_train = False
+                # need_train = False
             except:
-                pass
+                print("Cannot load model")
 
         # trains
         if self.reset_optimizer:  # Reset optimizer before learning each task
@@ -159,7 +152,17 @@ class NormalNN(nn.Module):
         self.optimizer.step()
         return total_loss.detach(), logits
 
-    def validation(self, dataloader, model=None, task_in = None, task_metric='acc',  verbal = True, task_global=False):
+    def _evaluate(self, model, input, target, task, acc, task_in=None):
+        if task_in is None:
+            output = model(input)[:, :self.valid_out_dim]
+            acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
+        else:
+            assert task_in is not None, "Wrong in _evaluate method."
+            output = model.forward(input)[:, task_in]
+            acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
+        return acc
+
+    def validation(self, dataloader, model=None, task_in = None, task_metric='acc',  verbal = True):
 
         if model is None:
             model = self.model
@@ -177,25 +180,24 @@ class NormalNN(nn.Module):
                 with torch.no_grad():
                     input = input.cuda()
                     target = target.cuda()
-            if task_in is None:
-                output = model.forward(input)[:, :self.valid_out_dim]
-                acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
-            else:
+            if task_in is None: # same as task_global is True?
+                acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None)
+
+            else: # when task_in is not None but task_global = True is the same as task_in is None?
                 mask = target >= task_in[0]
-                mask_ind = mask.nonzero().view(-1) 
+                mask_ind = mask.nonzero().view(-1)
                 input, target = input[mask_ind], target[mask_ind]
 
                 mask = target < task_in[-1]
-                mask_ind = mask.nonzero().view(-1) 
+                mask_ind = mask.nonzero().view(-1)
                 input, target = input[mask_ind], target[mask_ind]
-                
-                if len(target) > 1:
-                    if task_global:
-                        output = model.forward(input)[:, :self.valid_out_dim]
-                        acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
-                    else:
-                        output = model.forward(input)[:, task_in]
-                        acc = accumulate_acc(output, target-task_in[0], task, acc, topk=(self.top_k,))
+                acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in)
+                # if len(target) > 1:
+                #     if task_global: # same as task_in is None?
+                #         acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None)
+                #     else:
+                #         assert task_in is not None, "Wrong in _evaluate method."
+                #         acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in)
             
         model.train(orig_mode)
 

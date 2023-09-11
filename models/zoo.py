@@ -9,6 +9,7 @@ from timm.models import vit_base_patch16_224
 import numpy as np
 import copy
 
+
 # Our method!
 class CodaPrompt(nn.Module):
     def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
@@ -29,26 +30,27 @@ class CodaPrompt(nn.Module):
             # in the original paper, we used ortho init at the start - this modification is more 
             # fair in the spirit of continual learning and has little affect on performance
             e_l = self.e_p_length
+            # note that emb_d and self.key_d must be MATCHED
             p = tensor_prompt(self.e_pool_size, e_l, emb_d)
             k = tensor_prompt(self.e_pool_size, self.key_d)
             a = tensor_prompt(self.e_pool_size, self.key_d)
             p = self.gram_schmidt(p)
             k = self.gram_schmidt(k)
             a = self.gram_schmidt(a)
-            setattr(self, f'e_p_{e}',p)
-            setattr(self, f'e_k_{e}',k)
-            setattr(self, f'e_a_{e}',a)
+            setattr(self, f'e_p_{e}', p)
+            setattr(self, f'e_k_{e}', k)
+            setattr(self, f'e_a_{e}', a)
 
     def _init_smart(self, emb_d, prompt_param):
 
         # prompt basic param
         self.e_pool_size = int(prompt_param[0])
         self.e_p_length = int(prompt_param[1])
-        self.e_layers = [0,1,2,3,4]
+        self.e_layers = [0, 1, 2, 3, 4]
 
         # strenth of ortho penalty
         self.ortho_mu = prompt_param[2]
-        
+
     def process_task_count(self):
         self.task_count += 1
 
@@ -61,15 +63,15 @@ class CodaPrompt(nn.Module):
         # code for this function is modified from:
         # https://github.com/legendongary/pytorch-gram-schmidt/blob/master/gram_schmidt.py
         for e in self.e_layers:
-            K = getattr(self,f'e_k_{e}')
-            A = getattr(self,f'e_a_{e}')
-            P = getattr(self,f'e_p_{e}')
+            K = getattr(self, f'e_k_{e}')
+            A = getattr(self, f'e_a_{e}')
+            P = getattr(self, f'e_p_{e}')
             k = self.gram_schmidt(K)
             a = self.gram_schmidt(A)
             p = self.gram_schmidt(P)
-            setattr(self, f'e_p_{e}',p)
-            setattr(self, f'e_k_{e}',k)
-            setattr(self, f'e_a_{e}',a)
+            setattr(self, f'e_p_{e}', p)
+            setattr(self, f'e_k_{e}', k)
+            setattr(self, f'e_a_{e}', a)
 
     # code for this function is modified from:
     # https://github.com/legendongary/pytorch-gram-schmidt/blob/master/gram_schmidt.py
@@ -86,8 +88,8 @@ class CodaPrompt(nn.Module):
         # check if the tensor is 3D and flatten the last two dimensions if necessary
         is_3d = len(vv.shape) == 3
         if is_3d:
-            shape_2d = copy.deepcopy(vv.shape)
-            vv = vv.view(vv.shape[0],-1)
+            shape_3d = copy.deepcopy(vv.shape)
+            vv = vv.view(vv.shape[0], -1)
 
         # swap rows and columns
         vv = vv.T
@@ -106,7 +108,7 @@ class CodaPrompt(nn.Module):
             redo = True
             while redo:
                 redo = False
-                vk = torch.randn_like(vv[:,k]).to(vv.device)
+                vk = torch.randn_like(vv[:, k]).to(vv.device)
                 uk = 0
                 for j in range(0, k):
                     if not redo:
@@ -123,35 +125,38 @@ class CodaPrompt(nn.Module):
             uu[:, k] = uk / (uk.norm())
 
         # undo swapping of rows and columns
-        uu = uu.T 
+        uu = uu.T
 
         # return from 2D
         if is_3d:
-            uu = uu.view(shape_2d)
-        
-        return torch.nn.Parameter(uu) 
+            uu = uu.view(shape_3d)
 
-    def forward(self, x_querry, l, x_block, train=False, task_id=None):
+        return torch.nn.Parameter(uu)
+
+    def forward(self, x_query, l, x_block, train=False, task_id=None):
 
         # e prompts
         e_valid = False
         if l in self.e_layers:
             e_valid = True
-            B, C = x_querry.shape
+            B, C = x_query.shape
 
-            K = getattr(self,f'e_k_{l}')
-            A = getattr(self,f'e_a_{l}')
-            p = getattr(self,f'e_p_{l}')
-            pt = int(self.e_pool_size / (self.n_tasks))
-            s = int(self.task_count * pt)
-            f = int((self.task_count + 1) * pt)
-            
+            K = getattr(self, f'e_k_{l}')
+            A = getattr(self, f'e_a_{l}')
+            p = getattr(self, f'e_p_{l}')
+            pt = int(self.e_pool_size / (self.n_tasks))  # number of prompts for current task
+            s = int(self.task_count * pt)  # index of starting prompt for current task
+            f = int((self.task_count + 1) * pt)  # index of ending prompt for current task
+
             # freeze/control past tasks
             if train:
                 if self.task_count > 0:
-                    K = torch.cat((K[:s].detach().clone(),K[s:f]), dim=0)
-                    A = torch.cat((A[:s].detach().clone(),A[s:f]), dim=0)
-                    p = torch.cat((p[:s].detach().clone(),p[s:f]), dim=0)
+                    # freeze K[:s], only train K[s:f]
+                    K = torch.cat((K[:s].detach().clone(), K[s:f]), dim=0)  # shape == (f, self.key_d)
+                    # freeze A[:s], only train A[s:f]
+                    A = torch.cat((A[:s].detach().clone(), A[s:f]), dim=0)  # shape == (f, self.key_d)
+                    # freeze p[:s], only train p[s:f]
+                    p = torch.cat((p[:s].detach().clone(), p[s:f]), dim=0)  # shape == (f, e_l, self.emb_d)
                 else:
                     K = K[s:f]
                     A = A[s:f]
@@ -163,18 +168,20 @@ class CodaPrompt(nn.Module):
 
             # with attention and cosine sim
             # (b x 1 x d) * soft([1 x k x d]) = (b x k x d) -> attention = k x d
-            a_querry = torch.einsum('bd,kd->bkd', x_querry, A)
-            # # (b x k x d) - [1 x k x d] = (b x k) -> key = k x d
-            n_K = nn.functional.normalize(K, dim=1)
-            q = nn.functional.normalize(a_querry, dim=2)
-            aq_k = torch.einsum('bkd,kd->bk', q, n_K)
+            # x_query.shape == (B, self.emb_d)
+            # A.shape == (f, self.emb_d)
+            a_query = torch.einsum('bd,kd->bkd', x_query, A)  # shape == (B, f, self.emb_d)
+            # (b x k x d) - [1 x k x d] = (b x k) -> key = k x d
+            n_K = nn.functional.normalize(K, dim=1)  # shape == (f, self.key_d)
+            q = nn.functional.normalize(a_query, dim=2)  # shape == (B, f, self.emb_d)
+            aq_k = torch.einsum('bkd,kd->bk', q, n_K)  # shape == (B, f) # attention of set of prompt
             # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
             P_ = torch.einsum('bk,kld->bld', aq_k, p)
 
             # select prompts
-            i = int(self.e_p_length/2)
-            Ek = P_[:,:i,:]
-            Ev = P_[:,i:,:]
+            i = int(self.e_p_length / 2)
+            Ek = P_[:, :i, :]
+            Ev = P_[:, i:, :]
 
             # ortho penalty
             if train and self.ortho_mu > 0:
@@ -195,10 +202,9 @@ class CodaPrompt(nn.Module):
         # return
         return p_return, loss, x_block
 
+
 def ortho_penalty(t):
-    return ((t @t.T - torch.eye(t.shape[0]).cuda())**2).mean()
-
-
+    return ((t @ t.T - torch.eye(t.shape[0]).cuda()) ** 2).mean()
 
 
 # @article{wang2022dualprompt,
@@ -219,81 +225,89 @@ class DualPrompt(nn.Module):
         # g prompt init
         for g in self.g_layers:
             p = tensor_prompt(self.g_p_length, emb_d)
-            setattr(self, f'g_p_{g}',p)
+            setattr(self, f'g_p_{g}', p)
 
         # e prompt init
         for e in self.e_layers:
             p = tensor_prompt(self.e_pool_size, self.e_p_length, emb_d)
             k = tensor_prompt(self.e_pool_size, self.key_d)
-            setattr(self, f'e_p_{e}',p)
-            setattr(self, f'e_k_{e}',k)
+            setattr(self, f'e_p_{e}', p)
+            setattr(self, f'e_k_{e}', k)
 
     def _init_smart(self, emb_d, prompt_param):
-        
+
         self.top_k = 1
         self.task_id_bootstrap = True
 
         # prompt locations
-        self.g_layers = [0,1]
-        self.e_layers = [2,3,4]
+        self.g_layers = [0, 1]
+        self.e_layers = [2, 3, 4]
 
         # prompt pool size
-        self.g_p_length = int(prompt_param[2]) # number of g_prompt per layer
-        self.e_p_length = int(prompt_param[1]) # number of e_prompt per layer
+        self.g_p_length = int(prompt_param[2])  # number of g_prompt per layer
+        self.e_p_length = int(prompt_param[1])  # number of e_prompt per layer
         self.e_pool_size = int(prompt_param[0])
 
     def process_task_count(self):
         self.task_count += 1
 
-    def forward(self, x_querry, l, x_block, train=False, task_id=None):
+    def forward(self, x_query, l, x_block, train=False, task_id=None):
 
         # e prompts
         e_valid = False
         if l in self.e_layers:
             e_valid = True
-            B, C = x_querry.shape
-            K = getattr(self,f'e_k_{l}') # 0 based indexing here
-            p = getattr(self,f'e_p_{l}') # 0 based indexing here
-            
-            # cosine similarity to match keys/querries
-            n_K = nn.functional.normalize(K, dim=1) # shape == (self.e_pool_size, self.key_d)
-            q = nn.functional.normalize(x_querry, dim=1).detach() # shape == (self.e_pool_size, self.e_p_length, self.embedding_dimension)
+            B, C = x_query.shape
+            K = getattr(self, f'e_k_{l}')  # 0 based indexing here
+            # K.shape == (self.e_pool_size, self.key_d)
+            p = getattr(self, f'e_p_{l}')  # 0 based indexing here
+            # p.shape == (self.e_pool_size, self.e_p_length, self.emb_d)
+
+            # cosine similarity to match keys/queries
+            n_K = nn.functional.normalize(K, dim=1)  # shape == (self.e_pool_size, self.key_d)
+            q = nn.functional.normalize(x_query, dim=1).detach()  # shape == (B, self.emb_d)
             cos_sim = torch.einsum('bj,kj->bk', q, n_K)
-            
+
             if train:
                 # dual prompt during training uses task id
                 if self.task_id_bootstrap:
-                    loss = (1.0 - cos_sim[:,task_id]).sum()
-                    P_ = p[task_id].expand(len(x_querry),-1,-1)
+                    loss = (1.0 - cos_sim[:, task_id]).sum()
+                    # simply duplicate p[task_id], which is just one prompt param, to every instance.
+                    P_ = p[task_id].expand(B, -1, -1)  # shape == (B, self.e_p_length, self.emb_d)
                 else:
                     top_k = torch.topk(cos_sim, self.top_k, dim=1)
                     k_idx = top_k.indices  # shape of k_idx == (B, self.top_k)
-                    loss = (1.0 - cos_sim[:,k_idx]).sum()
-                    P_ = p[k_idx] # shape == (B, self.top_k, self.e_p_length, self.embedding_dimension)
+                    loss = (1.0 - cos_sim[:, k_idx]).sum()
+                    # select the selected prompt param, based on similarity between query of x and key of prompt param
+                    P_ = p[k_idx]  # shape == (B, self.top_k, self.e_p_length, self.emb_d)
             else:
                 top_k = torch.topk(cos_sim, self.top_k, dim=1)
                 k_idx = top_k.indices
                 P_ = p[k_idx]
-                
+
             # select prompts
+            # Prefix prompt
+            # break all the prompt in the selected set into 2 evenly part alongside with self.e_p_length dimension
+            # then concatenate those
             if train and self.task_id_bootstrap:
-                i = int(self.e_p_length/2)
-                Ek = P_[:,:i,:].reshape((B,-1,self.emb_d))
-                Ev = P_[:,i:,:].reshape((B,-1,self.emb_d))
+                i = int(self.e_p_length / 2)
+                Ek = P_[:, :i, :].reshape((B, -1, self.emb_d))
+                Ev = P_[:, i:, :].reshape((B, -1, self.emb_d))
             else:
-                i = int(self.e_p_length/2)
-                Ek = P_[:,:,:i,:].reshape((B,-1,self.emb_d)) # shape == (B, self.top_k * i, self.embedding_dimension)
-                Ev = P_[:,:,i:,:].reshape((B,-1,self.emb_d))
-        
+                i = int(self.e_p_length / 2)
+                Ek = P_[:, :, :i, :].reshape(
+                    (B, -1, self.emb_d))  # shape == (B, self.top_k * i, self.embedding_dimension)
+                Ev = P_[:, :, i:, :].reshape((B, -1, self.emb_d))
+
         # g prompts
         g_valid = False
         if l in self.g_layers:
             g_valid = True
-            j = int(self.g_p_length/2)
-            p = getattr(self,f'g_p_{l}') # 0 based indexing here
-            P_ = p.expand(len(x_querry),-1,-1)
-            Gk = P_[:,:j,:]
-            Gv = P_[:,j:,:]
+            j = int(self.g_p_length / 2)
+            p = getattr(self, f'g_p_{l}')  # 0 based indexing here
+            P_ = p.expand(len(x_query), -1, -1)
+            Gk = P_[:, :j, :]
+            Gv = P_[:, j:, :]
 
         # combine prompts for prefix tuning
         if e_valid and g_valid:
@@ -315,6 +329,7 @@ class DualPrompt(nn.Module):
         else:
             return p_return, 0, x_block
 
+
 # @inproceedings{wang2022learning,
 #   title={Learning to prompt for continual learning},
 #   author={Wang, Zifeng and Zhang, Zizhao and Lee, Chen-Yu and Zhang, Han and Sun, Ruoxi and Ren, Xiaoqi and Su, Guolong and Perot, Vincent and Dy, Jennifer and Pfister, Tomas},
@@ -333,7 +348,7 @@ class L2P(DualPrompt):
         # prompt locations
         self.g_layers = []
         if prompt_param[2] > 0:
-            self.e_layers = [0,1,2,3,4]
+            self.e_layers = [0, 1, 2, 3, 4]
         else:
             self.e_layers = [0]
 
@@ -343,21 +358,103 @@ class L2P(DualPrompt):
         self.e_pool_size = int(prompt_param[0])
 
 
+class ContrastivePrototypicalPrompt(DualPrompt):
+    def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
+        super().__init__(emb_d, n_tasks, prompt_param, key_dim)
+
+    def _init_smart(self, emb_d, prompt_param):
+        # prompt locations
+        # in CPP, there is no shared prompt, just task-specific prompt
+        self.e_layers = [0, 1, 2, 3, 4]  # e prompt(expert prompt): task-specific prompt
+        self.g_layers = []  # g prompt(general prompt): shared prompt
+
+        # prompt pool size
+        self.g_p_length = int(prompt_param[2])  # length of g_prompt per layer (no need to define)
+        self.e_p_length = int(prompt_param[1])  # length of e_prompt per layer
+        self.e_pool_size = int(prompt_param[0])  # number of e_prompt per layer (should be larger than number of task)
+
+        self.task_id_bootstrap = True
+
+    def forward(self, x_query, l, x_block, train=False, task_id=None, prototype=None, class_to_task=None):
+        # e prompts
+        if not train:
+            assert prototype is not None, "Test mode but not have prototype."
+
+        e_valid = False
+        if l in self.e_layers:
+            e_valid = True
+            B, C = x_query.shape # C == self.emb_d == self.key_d
+            p = getattr(self, f'e_p_{l}')  # 0 based indexing here
+
+            if train:  # CPP in training time, same as DualPrompt, since need to access to task-specific prompt
+                K = getattr(self, f'e_k_{l}')
+                # cosine similarity to match keys/queries
+                n_K = nn.functional.normalize(K, dim=1)  # shape == (self.e_pool_size, self.key_d)
+                q = nn.functional.normalize(x_query, dim=1).detach()  # shape == (B, self.emb_d)
+                cos_sim = torch.einsum('bj,kj->bk', q, n_K)
+
+                # CPP prompt during training uses task id
+                loss = (1.0 - cos_sim[:, task_id]).sum()
+                # simply duplicate p[task_id], which is just one prompt param, to every instance.
+                P_ = p[task_id].expand(B, -1, -1)  # shape == (B, self.e_p_length, self.emb_d)
+
+            else: # CPP in testing time, but differs than that of DualPrompt!
+                # cosine similarity to match keys/queries
+                n_U = nn.functional.normalize(prototype, dim=1)  # shape == (number of classes, self.key_d)
+                q = nn.functional.normalize(x_query, dim=1).detach()  # shape == (B, self.emb_d)
+                cos_sim = torch.einsum('bj,kj->bk', q, n_U)
+
+                top_k = torch.topk(cos_sim, self.top_k, dim=1)
+                class_idx = top_k.indices # shape == (B, self.top_k)
+                # have already had k class_id, we need to find their corresponding task to retrieve task-specific prompt
+                k_idx = torch.zeros_like(class_idx)
+                # here, we map each class_id to its corresponding task_id via mapping class_to_task
+                # prototype.shape[0] is the number of classes seen so far
+                for cid in range(prototype.shape[0]):
+                    k_idx[class_idx == cid] = class_to_task[cid]
+                P_ = p[k_idx] # shape == (B, self.top_k, self.e_p_length, self.emb_d)
+
+            # select prompts
+            # Prefix prompt
+            if train:
+                i = int(self.e_p_length / 2)
+                Ek = P_[:, :i, :].reshape((B, -1, self.emb_d))
+                Ev = P_[:, i:, :].reshape((B, -1, self.emb_d))
+
+            else:
+                i = int(self.e_p_length / 2)
+                Ek = P_[:, :, :i, :].reshape(
+                    (B, -1, self.emb_d))  # shape == (B, self.top_k * i, self.embedding_dimension)
+                Ev = P_[:, :, i:, :].reshape((B, -1, self.emb_d))
+
+        if e_valid:
+            p_return = [Ek, Ev]
+        else:
+            p_return = None
+            loss = 0
+
+        # return
+        if train:
+            return p_return, loss, x_block
+        else:
+            return p_return, 0, x_block
+
 
 # note - ortho init has not been found to help l2p/dual prompt
 def tensor_prompt(a, b, c=None, ortho=False):
     if c is None:
-        p = torch.nn.Parameter(torch.FloatTensor(a,b), requires_grad=True)
+        p = torch.nn.Parameter(torch.FloatTensor(a, b), requires_grad=True)
     else:
-        p = torch.nn.Parameter(torch.FloatTensor(a,b,c), requires_grad=True)
+        p = torch.nn.Parameter(torch.FloatTensor(a, b, c), requires_grad=True)
     if ortho:
         nn.init.orthogonal_(p)
     else:
         nn.init.uniform_(p)
-    return p    
+    return p
+
 
 class ViTZoo(nn.Module):
-    def __init__(self, num_classes=10, pt=True, prompt_flag=False, prompt_param=None):
+    def __init__(self, num_classes=10, pt=True, prompt_flag="l2p", prompt_param=None):
         super(ViTZoo, self).__init__()
 
         # get last layer
@@ -371,10 +468,12 @@ class ViTZoo(nn.Module):
 
         if pt:
             load_dict = vit_base_patch16_224(pretrained=True).state_dict()
-            del load_dict['head.weight']; del load_dict['head.bias']
+            del load_dict['head.weight']
+            del load_dict['head.bias']
             zoo_model.load_state_dict(load_dict)
 
         # classifier
+        # if self.prompt_flag
         self.last = nn.Linear(768, num_classes)
 
         # create prompting module
@@ -384,32 +483,44 @@ class ViTZoo(nn.Module):
             self.prompt = DualPrompt(768, prompt_param[0], prompt_param[1])
         elif self.prompt_flag == 'coda':
             self.prompt = CodaPrompt(768, prompt_param[0], prompt_param[1])
+        elif self.prompt_flag == 'cpp':
+            self.prompt = ContrastivePrototypicalPrompt(768, prompt_param[0], prompt_param[1])
         else:
             self.prompt = None
-        
+
         # feature encoder changes if transformer vs resnet
         self.feat = zoo_model
-        
-    # pen: get penultimate features    
-    def forward(self, x, pen=False, train=False):
 
+    # pen: get penultimate(final) features
+    def forward(self, x, pen=False, train=False, use_prompt=True):
+        prompt_loss = 0
         if self.prompt is not None:
             with torch.no_grad():
                 q, _ = self.feat(x)
-                q = q[:,0,:] # [class] token!!!, having shape == (B, 1, self.embedding_dimension)
-            out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id)
-            out = out[:,0,:]
+                q = q[:, 0, :]  # [class] token!!!, having shape == (B, 1, self.embedding_dimension)
+            if use_prompt:
+                out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id)
+            else:
+                out, prompt_loss = self.feat(x, prompt=None, q=q, train=train, task_id=self.task_id)
+            last_feature = out[:, 0, :]
         else:
             out, _ = self.feat(x)
-            out = out[:,0,:]
-        out = out.view(out.size(0), -1)
-        if not pen:
-            out = self.last(out)
-        if self.prompt is not None and train:
-            return out, prompt_loss
-        else:
-            return out
-            
-def vit_pt_imnet(out_dim, prompt_flag = 'None', prompt_param=None):
-    return ViTZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param)
+            last_feature = out[:, 0, :]
 
+        last_feature = last_feature.view(last_feature.size(0), -1)  # final feature vector
+        logits = self.last(last_feature)  # logits, after going to last layer
+
+        if not pen:
+            if self.prompt is not None and train:
+                return logits, prompt_loss
+            else:
+                return logits
+        else:
+            if self.prompt is not None and train:
+                return last_feature, logits, prompt_loss
+            else:
+                return last_feature, logits
+
+
+def vit_pt_imnet(out_dim, prompt_flag='l2p', prompt_param=None):
+    return ViTZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param)

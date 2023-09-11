@@ -15,6 +15,8 @@ import copy
 import torchvision
 from utils.schedulers import CosineSchedule
 from torch.autograd import Variable, Function
+from models.vit import Mlp
+from SelfSupervisedContrastiveLoss import SelfSupConLoss
 
 class Prompt(NormalNN):
 
@@ -44,14 +46,18 @@ class Prompt(NormalNN):
         return total_loss.detach(), logits
 
     # sets model optimizers
-    def init_optimizer(self):
-
-        # parse optimizer args
-        # Multi-GPU
+    def _learnable_params(self):
         if len(self.config['gpuid']) > 1:
             params_to_opt = list(self.model.module.prompt.parameters()) + list(self.model.module.last.parameters())
         else:
             params_to_opt = list(self.model.prompt.parameters()) + list(self.model.last.parameters())
+        return params_to_opt
+
+    def init_optimizer(self):
+
+        # parse optimizer args
+        # Multi-GPU
+        params_to_opt = self._learnable_params()
         print('*****************************************')
         optimizer_arg = {'params':params_to_opt,
                          'lr':self.config['lr'],
@@ -131,3 +137,124 @@ class L2P(Prompt):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param)
         return model
+
+class ContrastivePrototypicalPrompt(Prompt):
+
+    def __int__(self, learner_config):
+        super(ContrastivePrototypicalPrompt, self).__init__(learner_config)
+        self.key_prototype = dict()
+        self.perturbed_prototype = dict()
+        self.contrastive_loss = SelfSupConLoss()
+
+        self._generate_mapping_class_to_task() # generate mapping from class_id to task_id, used for evaluation
+
+    def create_model(self):
+        cfg = self.config
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'cpp',prompt_param=self.prompt_param)
+        return model
+
+    def _update_prototype_set(self, prototype_set, train_loader, is_perturbed=False):
+        """
+        Function to update prototype of previous class. Only update prototype after updating feature_extractor(prompt)
+        """
+        list_last_feature = list()
+        list_output = list()
+        for i, (x, y, task) in enumerate(train_loader):
+            self.model.eval()
+
+            # send data to gpu
+            if self.gpu:
+                x = x.cuda()
+                y = y.cuda()
+
+            if is_perturbed: # if update perturbed prototype then USE PROMPT
+                last_feature = self.model(x, pen=True, train=False, use_prompt=True)
+                # MAKE SURE THAT SELF.MLP_NECK IS PROPERLY UPDATED
+                last_feature = self.MLP_neck(last_feature)
+
+            else: # if update key prototype then DO NOT USE PROMPT
+                last_feature = self.model(x, pen=True, train=False, use_prompt=False)
+
+            list_last_feature.append(last_feature)
+            list_output.append(y)
+
+        last_features = torch.cat(list_last_feature, dim=0) # all feature vectors in train_loader
+        outputs = torch.cat(list_output, dim=0) # corresponding output of all feature vectors
+        uni_output = torch.unique(outputs) # retrieve all class_id in train_loader
+        for class_id in uni_output:
+            prototype = torch.mean(last_features[uni_output == class_id], dim=0) # calculate prototype by mean of vectors
+            if is_perturbed: # perturb prototype with Unit Multivariate Gaussian
+                prototype = prototype + torch.randn_like(prototype)
+            prototype_set[class_id] = prototype
+        return prototype_set
+
+    def _update_key_prototype(self, train_loader):
+        self._update_prototype_set(self.key_prototype, train_loader, False)
+
+    def _update_perturbed_prototype(self, train_loader):
+        self._update_prototype_set(self.perturbed_prototype, train_loader, True)
+
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
+        # update key prototype (not include prompt)
+        self._update_key_prototype(train_loader)
+        # re-initialize MLP neck
+        self._reset_MLP_neck()
+        # learn prompt
+        super().learn_batch(train_loader, train_dataset, model_save_dir, val_loader=None)
+        # update perturbed prototype set after learning prompt and MLP_neck
+        self._update_perturbed_prototype(train_loader)
+
+    def update_model(self, inputs, targets):
+        """
+        Modify update_model method because CPP has different loss function compared to L2P or DualPrompt.
+        Specifically, it uses Contrastive Loss Function as criterion
+        """
+        # logits
+        last_feature, logits, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
+        z_feature = self.MLP_neck(last_feature)
+
+        # retrieve all perturbed prototype set in a single tensor
+        all_previous_perturbed_prototype = list()
+        all_previous_prototype_labels = list()
+        for class_id, perturbed_set in self.perturbed_prototype:
+            all_previous_perturbed_prototype.append(perturbed_set)
+            all_previous_prototype_labels.append([class_id] * perturbed_set.shape[0])
+        all_previous_perturbed_prototype = torch.cat(all_previous_perturbed_prototype, dim=0)
+        all_previous_prototype_labels = torch.cat(all_previous_prototype_labels, dim=0)
+        z_feature = torch.cat((z_feature, all_previous_perturbed_prototype), dim=0)
+        labels_of_z_feature = torch.cat((targets, all_previous_prototype_labels), dim=0)
+
+        contrastive_loss = self.contrastive_loss(features=z_feature, labels=labels_of_z_feature, target_labels=targets)
+        total_loss = contrastive_loss + prompt_loss.sum()
+
+        # step
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.optimizer.step()
+
+        return total_loss.detach(), logits
+    def _reset_MLP_neck(self):
+        self.MLP_neck = Mlp(in_features=768, hidden_features=2048, out_features=768, act_layer=nn.ReLU, drop=0.)
+
+    def _learnable_params(self):
+        if len(self.config['gpuid']) > 1:
+            params_to_opt = list(self.model.module.prompt.parameters()) + list(self.MLP_neck.parameters())
+        else:
+            params_to_opt = list(self.model.prompt.parameters()) + list(self.MLP_neck.parameters())
+        return params_to_opt
+
+    def _generate_mapping_class_to_task(self):
+        self.mapping_class_to_task = dict()
+        for task_id, class_id_list in self.tasks:
+            for class_id in class_id_list:
+                self.mapping_class_to_task[class_id] = task_id
+
+    def _evaluate(self, model, input, target, task, acc, task_in=None):
+        # retrieve prototype set in a tensor with ascending order wrt class_id
+        class_id_so_far = sorted(self.key_prototype.keys())
+        U = list()
+        for class_id in class_id_so_far:
+            U.append(self.key_prototype[class_id])
+        U = torch.cat(U, dim=0)
+
+        model(input, pen=True, train=False, use_prompt=True, prototype=U, class_to_task=self.mapping_class_to_task)

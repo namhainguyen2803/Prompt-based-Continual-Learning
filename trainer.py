@@ -61,6 +61,7 @@ class Trainer:
             random.shuffle(class_order)
             print('post-shuffle:' + str(class_order))
             print('=============================================')
+
         self.tasks = []
         self.tasks_logits = []
         p = 0
@@ -118,7 +119,7 @@ class Trainer:
                         'upper_bound_flag': args.upper_bound_flag,
                         'tasks': self.tasks_logits,
                         'top_k': self.top_k,
-                        'prompt_param':[self.num_tasks,args.prompt_param]
+                        'prompt_param':[self.num_tasks, args.prompt_param]
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
@@ -142,7 +143,8 @@ class Trainer:
         temp_table = {}
         for mkey in self.metric_keys: temp_table[mkey] = []
         temp_dir = self.log_dir + '/temp/'
-        if not os.path.exists(temp_dir): os.makedirs(temp_dir)
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir)
 
         # for each task
         for i in range(self.max_task):
