@@ -1,14 +1,14 @@
 # bash experiments/cifar-100.sh
 # experiment settings
-DATASET=cifar-100
-N_CLASS=100
+DATASET=cifar-10
+N_CLASS=10
 
 # save directory
-OUTDIR=outputs/${DATASET}/10-task
+OUTDIR=outputs/${DATASET}/2-task
 
 # hard coded inputs
 GPUID='0 1 2 3'
-CONFIG=configs/cifar-100_prompt.yaml
+CONFIG=configs/cifar-10_prompt.yaml
 REPEAT=1
 OVERWRITE=0
 
@@ -60,4 +60,3 @@ python3 -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $
     --learner_type prompt --learner_name L2P \
     --prompt_param 30 20 -1 \
     --log_dir ${OUTDIR}/l2p++
-
