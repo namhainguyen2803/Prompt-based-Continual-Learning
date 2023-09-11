@@ -144,8 +144,8 @@ class ContrastivePrototypicalPrompt(Prompt):
         super(ContrastivePrototypicalPrompt, self).__init__(learner_config)
         self.key_prototype = dict()
         self.perturbed_prototype = dict()
-        self.contrastive_loss = SelfSupConLoss()
-
+        self.contrastive_loss = SelfSupConLoss().cuda()
+        self._reset_MLP_neck()
         self._generate_mapping_class_to_task() # generate mapping from class_id to task_id, used for evaluation
 
     def create_model(self):
@@ -234,7 +234,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
         return total_loss.detach(), logits
     def _reset_MLP_neck(self):
-        self.MLP_neck = Mlp(in_features=768, hidden_features=2048, out_features=768, act_layer=nn.ReLU, drop=0.)
+        self.MLP_neck = Mlp(in_features=768, hidden_features=2048, out_features=768, act_layer=nn.ReLU, drop=0.).cuda()
 
     def _learnable_params(self):
         if len(self.config['gpuid']) > 1:

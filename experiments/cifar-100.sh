@@ -24,9 +24,9 @@ mkdir -p $OUTDIR
 #    arg 2 = e-prompt pool length
 #    arg 3 = g-prompt pool length (not necessary)
 python3 -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
-    --learner_type prompt --learner_name CODAPrompt \
+    --learner_type prompt --learner_name ContrastivePrototypicalPrompt \
     --prompt_param 10 20 -1 \
-    --log_dir ${OUTDIR}/coda-p
+    --log_dir ${OUTDIR}/cpp
 
 # CODA-P
 #
