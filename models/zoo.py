@@ -374,12 +374,12 @@ class ContrastivePrototypicalPrompt(DualPrompt):
         self.e_pool_size = int(prompt_param[0])  # number of e_prompt per layer (should be larger than number of task)
 
         self.task_id_bootstrap = True
+        self.top_k = 5
 
-    def forward(self, x_query, l, x_block, train=False, task_id=None, prototype=None, class_to_task=None):
+    def forward(self, x_query, l, x_block, train=False, task_id=None, possible_task_id=None):
         # e prompts
-        if not train:
-            assert prototype is not None, "Test mode but not have prototype."
-
+        if train == False:
+            assert possible_task_id is not None, "In test mode, possible_task_id cannot be None."
         e_valid = False
         if l in self.e_layers:
             e_valid = True
@@ -391,6 +391,7 @@ class ContrastivePrototypicalPrompt(DualPrompt):
                 # cosine similarity to match keys/queries
                 n_K = nn.functional.normalize(K, dim=1)  # shape == (self.e_pool_size, self.key_d)
                 q = nn.functional.normalize(x_query, dim=1).detach()  # shape == (B, self.emb_d)
+                # q is unique among all layers, but specific to each instance
                 cos_sim = torch.einsum('bj,kj->bk', q, n_K)
 
                 # CPP prompt during training uses task id
@@ -399,20 +400,7 @@ class ContrastivePrototypicalPrompt(DualPrompt):
                 P_ = p[task_id].expand(B, -1, -1)  # shape == (B, self.e_p_length, self.emb_d)
 
             else: # CPP in testing time, but differs than that of DualPrompt!
-                # cosine similarity to match keys/queries
-                n_U = nn.functional.normalize(prototype, dim=1)  # shape == (number of classes, self.key_d)
-                q = nn.functional.normalize(x_query, dim=1).detach()  # shape == (B, self.emb_d)
-                cos_sim = torch.einsum('bj,kj->bk', q, n_U)
-
-                top_k = torch.topk(cos_sim, self.top_k, dim=1)
-                class_idx = top_k.indices # shape == (B, self.top_k)
-                # have already had k class_id, we need to find their corresponding task to retrieve task-specific prompt
-                k_idx = torch.zeros_like(class_idx)
-                # here, we map each class_id to its corresponding task_id via mapping class_to_task
-                # prototype.shape[0] is the number of classes seen so far
-                for cid in range(prototype.shape[0]):
-                    k_idx[class_idx == cid] = class_to_task[cid]
-                P_ = p[k_idx] # shape == (B, self.top_k, self.e_p_length, self.emb_d)
+                P_ = p[possible_task_id] # shape == (B, self.top_k, self.e_p_length, self.emb_d)
 
             # select prompts
             # Prefix prompt
@@ -491,17 +479,21 @@ class ViTZoo(nn.Module):
         # feature encoder changes if transformer vs resnet
         self.feat = zoo_model
 
+    def retrieve_query_vector(self, x):
+        with torch.no_grad():
+            q, _ = self.feat(x)
+            q = q[:, 0, :]  # [class] token!!!, having shape == (B, 1, self.embedding_dimension)
+        return q
+
     # pen: get penultimate(final) features
-    def forward(self, x, pen=False, train=False, use_prompt=True):
+    def forward(self, x, pen=False, train=False, use_prompt=True, possible_task_id=None):
         prompt_loss = 0
         if self.prompt is not None:
-            with torch.no_grad():
-                q, _ = self.feat(x)
-                q = q[:, 0, :]  # [class] token!!!, having shape == (B, 1, self.embedding_dimension)
+            q = self.retrieve_query_vector(x)
             if use_prompt:
-                out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id)
+                out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id, possible_task_id=possible_task_id)
             else:
-                out, prompt_loss = self.feat(x, prompt=None, q=q, train=train, task_id=self.task_id)
+                out, prompt_loss = self.feat(x, prompt=None, q=q, train=train, task_id=self.task_id, possible_task_id=possible_task_id)
             last_feature = out[:, 0, :]
         else:
             out, _ = self.feat(x)

@@ -253,8 +253,56 @@ class ContrastivePrototypicalPrompt(Prompt):
         # retrieve prototype set in a tensor with ascending order wrt class_id
         class_id_so_far = sorted(self.key_prototype.keys())
         U = list()
+        U_hat = list()
         for class_id in class_id_so_far:
             U.append(self.key_prototype[class_id])
+            U_hat.append(self.perturbed_prototype[class_id])
         U = torch.cat(U, dim=0)
+        U_hat = torch.cat(U_hat, dim=0) # shape == (num_classes, self.emb_d)
 
-        model(input, pen=True, train=False, use_prompt=True, prototype=U, class_to_task=self.mapping_class_to_task)
+        x_query = self.model.retrieve_query_vector(input) # query of input, shape == (B, self.emb_d)
+        B, C = x_query.shape
+        # cosine similarity to match keys/queries
+        n_U = nn.functional.normalize(U, dim=1)  # shape == (number of classes, self.key_d)
+        q = nn.functional.normalize(x_query, dim=1).detach()  # shape == (B, self.emb_d)
+        cos_sim = torch.einsum('bj,kj->bk', q, n_U)
+
+        top_k = torch.topk(cos_sim, self.model.prompt.top_k, dim=1)
+        class_idx = top_k.indices  # shape == (B, self.top_k)
+        # have already had k class_id, we need to find their corresponding task to retrieve task-specific prompt
+        possible_task_id = torch.zeros_like(class_idx)
+        # here, we map each class_id to its corresponding task_id via mapping class_to_task
+        # prototype.shape[0] is the number of classes seen so far
+        for cid in range(U.shape[0]):
+            possible_task_id[class_idx == cid] = self.mapping_class_to_task[cid]
+
+        fine_grained_query = list()
+        top_k = self.model.prompt.top_k
+        for top in range(top_k):
+            # last_feature will have shape (B, self.emb_d)
+            last_feature, _ = self.model(input, pen=True, train=False, use_prompt=True, possible_task_id=possible_task_id[:, top].view(-1, 1))
+            assert last_feature.shape == (B, self.model.prompt.emb_d), "Wrong in _evaluate method (1)."
+            last_feature = last_feature.unsqueeze(1) # have shape (B, 1, self.emb_d)
+            fine_grained_query.append(last_feature)
+        fine_grained_query = torch.cat(fine_grained_query, dim=1) # have shape (B, self.top_k, self.emb_d)
+
+        n_U_hat = nn.functional.normalize(U_hat, dim=1)  # shape == (number of classes, self.emb_d)
+        n_fine_grained_query = nn.functional.normalize(fine_grained_query, dim=-1)
+        assert n_fine_grained_query.shape == (B, top_k, self.model.prompt.emb_d), "Wrong in _evaluate method (2)."
+
+        likelihood_among_top_k_classes = torch.einsum('bij,kj->bki', n_fine_grained_query, n_U_hat)
+        # likelihood_among_top_k_classes.shape == (B, num_classes, self.model.prompt.top_k)
+        max_likelihood_among_k_classes = torch.max(likelihood_among_top_k_classes, dim=-1)
+        num_classes = likelihood_among_top_k_classes.shape[1]
+        assert max_likelihood_among_k_classes.shape == (B, num_classes), "Wrong in _evaluate method (3)."
+
+        decision = torch.argmax(max_likelihood_among_k_classes, dim=1)
+        assert decision.shape == B, "Wrong in _evaluate method (4)."
+
+        if task_in is None:
+            output = max_likelihood_among_k_classes[:, :self.valid_out_dim]
+            acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
+        else:
+            output = max_likelihood_among_k_classes[:, task_in]
+            acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
+        return acc
