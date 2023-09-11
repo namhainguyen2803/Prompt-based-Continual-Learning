@@ -483,13 +483,15 @@ class ViTZoo(nn.Module):
         with torch.no_grad():
             q, _ = self.feat(x)
             q = q[:, 0, :]  # [class] token!!!, having shape == (B, 1, self.embedding_dimension)
-        return q
+            return q
 
     # pen: get penultimate(final) features
     def forward(self, x, pen=False, train=False, use_prompt=True, possible_task_id=None):
         prompt_loss = 0
         if self.prompt is not None:
-            q = self.retrieve_query_vector(x)
+            with torch.no_grad():
+                q, _ = self.feat(x)
+                q = q[:, 0, :]  # [class] token!!!, having shape == (B, 1, self.embedding_dimension)
             if use_prompt:
                 out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id, possible_task_id=possible_task_id)
             else:

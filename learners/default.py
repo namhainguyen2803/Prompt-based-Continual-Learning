@@ -13,6 +13,7 @@ class NormalNN(nn.Module):
     def __init__(self, learner_config):
 
         super(NormalNN, self).__init__()
+        self.criterion_fn = None
         self.log = print
         self.config = learner_config
         self.out_dim = learner_config['out_dim']
@@ -33,7 +34,7 @@ class NormalNN(nn.Module):
             self.dw = False
 
         # supervised criterion
-        self.criterion_fn = nn.CrossEntropyLoss(reduction='none')
+        self._create_criterion_fn()
         
         # cuda gpu
         if learner_config['gpuid'][0] >= 0:
@@ -55,6 +56,9 @@ class NormalNN(nn.Module):
     ##########################################
     #           MODEL TRAINING               #
     ##########################################
+
+    def _create_criterion_fn(self):
+        self.criterion_fn = nn.CrossEntropyLoss(reduction='none')
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
         
@@ -150,54 +154,45 @@ class NormalNN(nn.Module):
         return total_loss.detach(), logits
 
     def _evaluate(self, model, input, target, task, acc, task_in=None):
-        if task_in is None:
-            output = model(input)[:, :self.valid_out_dim]
-            acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
-        else:
-            assert task_in is not None, "Wrong in _evaluate method."
-            output = model.forward(input)[:, task_in]
-            acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
-        return acc
+        with torch.no_grad():
+            if task_in is None:
+                output = model(input)[:, :self.valid_out_dim]
+                acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
+            else:
+                assert task_in is not None, "Wrong in _evaluate method."
+                output = model.forward(input)[:, task_in]
+                acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
+            return acc
 
     def validation(self, dataloader, model=None, task_in = None, task_metric='acc',  verbal = True):
+        with torch.no_grad():
+            if model is None:
+                model = self.model
+            # This function doesn't distinguish tasks.
+            batch_timer = Timer()
+            acc = AverageMeter()
+            batch_timer.tic()
+            orig_mode = model.training
+            model.eval()
+            for i, (input, target, task) in enumerate(dataloader):
 
-        if model is None:
-            model = self.model
+                if self.gpu:
+                    with torch.no_grad():
+                        input = input.cuda()
+                        target = target.cuda()
+                if task_in is None: # same as task_global is True?
+                    acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None)
 
-        # This function doesn't distinguish tasks.
-        batch_timer = Timer()
-        acc = AverageMeter()
-        batch_timer.tic()
-
-        orig_mode = model.training
-        model.eval()
-        for i, (input, target, task) in enumerate(dataloader):
-
-            if self.gpu:
-                with torch.no_grad():
-                    input = input.cuda()
-                    target = target.cuda()
-            if task_in is None: # same as task_global is True?
-                acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None)
-
-            else: # when task_in is not None but task_global = True is the same as task_in is None?
-                mask = target >= task_in[0]
-                mask_ind = mask.nonzero().view(-1)
-                input, target = input[mask_ind], target[mask_ind]
-
-                mask = target < task_in[-1]
-                mask_ind = mask.nonzero().view(-1)
-                input, target = input[mask_ind], target[mask_ind]
-                acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in)
-                # if len(target) > 1:
-                #     if task_global: # same as task_in is None?
-                #         acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None)
-                #     else:
-                #         assert task_in is not None, "Wrong in _evaluate method."
-                #         acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in)
+                else: # when task_in is not None but task_global = True is the same as task_in is None?
+                    mask = target >= task_in[0]
+                    mask_ind = mask.nonzero().view(-1)
+                    input, target = input[mask_ind], target[mask_ind]
+                    mask = target < task_in[-1]
+                    mask_ind = mask.nonzero().view(-1)
+                    input, target = input[mask_ind], target[mask_ind]
+                    acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in)
             
         model.train(orig_mode)
-
         if verbal:
             self.log(' * Val Acc {acc.avg:.3f}, Total time {time:.2f}'
                     .format(acc=acc, time=batch_timer.toc()))
@@ -263,7 +258,6 @@ class NormalNN(nn.Module):
 
     def create_model(self):
         cfg = self.config
-
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim)
 
