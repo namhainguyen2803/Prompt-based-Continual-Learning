@@ -16,7 +16,7 @@ import torchvision
 from utils.schedulers import CosineSchedule
 from torch.autograd import Variable, Function
 from models.vit import Mlp
-from SelfSupervisedContrastiveLoss import SelfSupConLoss
+from .SelfSupervisedContrastiveLoss import SelfSupConLoss
 
 class Prompt(NormalNN):
 
