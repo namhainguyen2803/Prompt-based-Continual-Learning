@@ -16,7 +16,7 @@ import torchvision
 from utils.schedulers import CosineSchedule
 from torch.autograd import Variable, Function
 from models.vit import Mlp
-from .SelfSupervisedContrastiveLoss import SelfSupConLoss
+from .CPL import ContrastivePrototypicalLoss
 
 class Prompt(NormalNN):
 
@@ -144,20 +144,20 @@ class ContrastivePrototypicalPrompt(Prompt):
         super(ContrastivePrototypicalPrompt, self).__init__(learner_config)
 
         self.key_prototype = dict()
-        self.perturbed_prototype = dict()
+        self.value_prototype = dict()
         self.MLP_neck = None
 
         self._generate_mapping_class_to_task() # generate mapping from class_id to task_id, used for evaluation
 
     def _create_criterion_fn(self):
-        self.criterion_fn = SelfSupConLoss()
+        self.criterion_fn = ContrastivePrototypicalLoss(temperature=3, reduction="mean")
 
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'cpp',prompt_param=self.prompt_param)
         return model
 
-    def _update_prototype_set(self, prototype_set, train_loader, is_perturbed=False):
+    def _update_prototype_set(self, prototype_set, train_loader, use_prompt=False):
         """
         Function to update prototype of previous class. Only update prototype after updating feature_extractor(prompt)
         """
@@ -172,11 +172,9 @@ class ContrastivePrototypicalPrompt(Prompt):
                     x = x.cuda()
                     y = y.cuda()
 
-                if is_perturbed: # if update perturbed prototype then USE PROMPT
+                if use_prompt: # if update perturbed prototype then USE PROMPT
                     last_feature, _ = self.model(x, pen=True, train=False, use_prompt=True)
                     # MAKE SURE THAT SELF.MLP_NECK IS PROPERLY UPDATED
-                    last_feature = self.MLP_neck(last_feature)
-
                 else: # if update key prototype then DO NOT USE PROMPT
                     last_feature, _ = self.model(x, pen=True, train=False, use_prompt=False)
 
@@ -188,16 +186,14 @@ class ContrastivePrototypicalPrompt(Prompt):
             uni_output = torch.unique(outputs) # retrieve all class_id in train_loader
             for class_id in uni_output:
                 prototype = torch.mean(last_features[outputs == class_id], dim=0) # calculate prototype by mean of vectors
-                if is_perturbed: # perturb prototype with Unit Multivariate Gaussian
-                    prototype = prototype + torch.randn_like(prototype)
                 prototype_set[class_id] = prototype
             return prototype_set
 
     def _update_key_prototype(self, train_loader):
-        self._update_prototype_set(self.key_prototype, train_loader, False)
+        self._update_prototype_set(prototype_set=self.key_prototype, train_loader=train_loader, use_prompt=False)
 
-    def _update_perturbed_prototype(self, train_loader):
-        self._update_prototype_set(self.perturbed_prototype, train_loader, True)
+    def _update_value_prototype(self, train_loader):
+        self._update_prototype_set(prototype_set=self.value_prototype, train_loader=train_loader, use_prompt=True)
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
         # update key prototype (not include prompt)
@@ -207,7 +203,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         # learn prompt
         super().learn_batch(train_loader, train_dataset, model_save_dir, val_loader=None)
         # update perturbed prototype set after learning prompt and MLP_neck
-        self._update_perturbed_prototype(train_loader)
+        self._update_value_prototype(train_loader)
 
     def update_model(self, inputs, targets):
         """
@@ -217,29 +213,30 @@ class ContrastivePrototypicalPrompt(Prompt):
         # logits
         last_feature, logits, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
         z_feature = self.MLP_neck(last_feature)
+
         if self.task_count > 1:
             # retrieve all perturbed prototype set in a single tensor
-            all_previous_perturbed_prototype = list()
-            all_previous_prototype_labels = list()
-            for class_id, perturbed_set in self.perturbed_prototype:
-                all_previous_perturbed_prototype.append(perturbed_set)
-                all_previous_prototype_labels.append([class_id] * perturbed_set.shape[0])
-            all_previous_perturbed_prototype = torch.cat(all_previous_perturbed_prototype, dim=0)
-            all_previous_prototype_labels = torch.cat(all_previous_prototype_labels, dim=0)
-            z_feature = torch.cat((z_feature, all_previous_perturbed_prototype), dim=0)
-            labels_of_z_feature = torch.cat((targets, all_previous_prototype_labels), dim=0)
+            all_previous_value_prototype = list()
+            for class_id, value_prototype_set in self.value_prototype:
+                all_previous_value_prototype.append(value_prototype_set)
+            all_previous_value_prototype = torch.cat(all_previous_value_prototype, dim=0)
+            n_z_feature = nn.functional.normalize(z_feature, dim=1)
+            total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
+                                                 previous_prototype=all_previous_value_prototype)
         else:
-            labels_of_z_feature = targets
-
-        contrastive_loss = self.criterion_fn(features=z_feature, labels=labels_of_z_feature, target_labels=targets)
-        total_loss = contrastive_loss + prompt_loss.sum()
-
+            n_z_feature = nn.functional.normalize(z_feature, dim=1)
+            total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
+                                                 previous_prototype=None)
         # step
         self.optimizer.zero_grad()
         total_loss.backward()
         self.optimizer.step()
 
         return total_loss.detach(), logits
+
+    def _perturb_key_prototype(self, prototype):
+        return prototype + torch.randn_like(prototype)
+
     def _reset_MLP_neck(self):
         if self.MLP_neck is not None:
             del self.MLP_neck
@@ -266,7 +263,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             U_hat = list()
             for class_id in class_id_so_far:
                 U.append(self.key_prototype[class_id])
-                U_hat.append(self.perturbed_prototype[class_id])
+                U_hat.append(self.value_prototype[class_id])
             U = torch.cat(U, dim=0)
             U_hat = torch.cat(U_hat, dim=0) # shape == (num_classes, self.emb_d)
 

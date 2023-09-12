@@ -384,23 +384,16 @@ class ContrastivePrototypicalPrompt(DualPrompt):
         if l in self.e_layers:
             e_valid = True
             B, C = x_query.shape # C == self.emb_d == self.key_d
-            p = getattr(self, f'e_p_{l}')  # 0 based indexing here
+            p = getattr(self, f'e_p_{l}')
 
             if train:  # CPP in training time, same as DualPrompt, since need to access to task-specific prompt
-                K = getattr(self, f'e_k_{l}')
-                # cosine similarity to match keys/queries
-                n_K = nn.functional.normalize(K, dim=1)  # shape == (self.e_pool_size, self.key_d)
-                q = nn.functional.normalize(x_query, dim=1).detach()  # shape == (B, self.emb_d)
-                # q is unique among all layers, but specific to each instance
-                cos_sim = torch.einsum('bj,kj->bk', q, n_K)
-
-                # CPP prompt during training uses task id
-                loss = (1.0 - cos_sim[:, task_id]).sum()
+                # no need cos-sim loss
                 # simply duplicate p[task_id], which is just one prompt param, to every instance.
                 P_ = p[task_id].expand(B, -1, -1)  # shape == (B, self.e_p_length, self.emb_d)
 
             else: # CPP in testing time, but differs than that of DualPrompt!
-                P_ = p[possible_task_id] # shape == (B, self.top_k, self.e_p_length, self.emb_d)
+                assert possible_task_id.shape == (B, 1), "Wrong in class ContrastivePrototypicalPrompt(DualPrompt)."
+                P_ = p[possible_task_id] # shape == (B, 1, self.e_p_length, self.emb_d)
 
             # select prompts
             # Prefix prompt
@@ -419,11 +412,10 @@ class ContrastivePrototypicalPrompt(DualPrompt):
             p_return = [Ek, Ev]
         else:
             p_return = None
-            loss = 0
 
         # return
         if train:
-            return p_return, loss, x_block
+            return p_return, 0, x_block
         else:
             return p_return, 0, x_block
 
