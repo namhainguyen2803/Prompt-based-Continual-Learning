@@ -37,10 +37,8 @@ class ContrastivePrototypicalLoss(nn.Module):
             concat_z_and_prototype = torch.cat([z_feature, previous_prototype], dim=0)
 
         z_dot_z_T = torch.div(torch.matmul(z_feature, concat_z_and_prototype.T), self.temperature)
-        # z_dot_z_T.shape == (batch_size, batch_size + num_prototype)
 
-        # create mask_for_same_classes, 1 if same class, 0 if not same class or itself
-        # in mask, each row is the mask for corresponding instance
+        # create mask_for_same_classes
         mask_for_same_classes = torch.zeros(batch_size, batch_size + num_prototype).to(self._device)
         labels = label.contiguous().view(-1, 1)
         current_task_mask = torch.eq(labels, labels.T).float() # 1 if same class, 0 if not same class
@@ -61,6 +59,7 @@ class ContrastivePrototypicalLoss(nn.Module):
                                  torch.log(torch.sum(torch.exp(z_dot_z_T * mask_for_different_classes), dim=1, keepdim=True) -
                                            torch.sum(1 - mask_for_different_classes, dim=1, keepdim=True))
         assert loss_for_each_instance.shape == (batch_size, 1), "loss_for_each_instance.shape != (batch_size, 1)"
+
         if self.reduction == "mean":
             return torch.mean(loss_for_each_instance)
         elif self.reduction == "sum":

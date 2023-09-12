@@ -340,7 +340,6 @@ class DualPrompt(nn.Module):
 class L2P(DualPrompt):
     def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
         super().__init__(emb_d, n_tasks, prompt_param, key_dim)
-
     def _init_smart(self, emb_d, prompt_param):
         self.top_k = 5
         self.task_id_bootstrap = False
@@ -361,6 +360,13 @@ class L2P(DualPrompt):
 class ContrastivePrototypicalPrompt(DualPrompt):
     def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
         super().__init__(emb_d, n_tasks, prompt_param, key_dim)
+        self._delete_garbage_parameter()
+
+    def _delete_garbage_parameter(self):
+        for l in self.e_layers:
+            # delete key parameter of prompt
+            k = getattr(self, f'e_k_{l}')
+            del k
 
     def _init_smart(self, emb_d, prompt_param):
         # prompt locations
@@ -378,46 +384,31 @@ class ContrastivePrototypicalPrompt(DualPrompt):
 
     def forward(self, x_query, l, x_block, train=False, task_id=None, possible_task_id=None):
         # e prompts
-        if train == False:
+        if not train:
             assert possible_task_id is not None, "In test mode, possible_task_id cannot be None."
-        e_valid = False
+
+        p_return = None
         if l in self.e_layers:
-            e_valid = True
-            B, C = x_query.shape # C == self.emb_d == self.key_d
+            B, C = x_query.shape  # C == self.emb_d == self.key_d
             p = getattr(self, f'e_p_{l}')
 
-            if train:  # CPP in training time, same as DualPrompt, since need to access to task-specific prompt
+            if train:  # CPP in training time, need to access to task-specific prompt
                 # no need cos-sim loss
-                # simply duplicate p[task_id], which is just one prompt param, to every instance.
                 P_ = p[task_id].expand(B, -1, -1)  # shape == (B, self.e_p_length, self.emb_d)
 
-            else: # CPP in testing time, but differs than that of DualPrompt!
+            else:  # CPP in testing time, but differs than that of DualPrompt!
                 assert possible_task_id.shape == (B, 1), "Wrong in class ContrastivePrototypicalPrompt(DualPrompt)."
-                P_ = p[possible_task_id] # shape == (B, 1, self.e_p_length, self.emb_d)
+                P_ = p[possible_task_id]  # shape == (B, 1, self.e_p_length, self.emb_d)
+                P_ = P_.squeeze(1)  # shape == (B, self.e_p_length, self.emb_d)
 
             # select prompts
             # Prefix prompt
-            if train:
-                i = int(self.e_p_length / 2)
-                Ek = P_[:, :i, :].reshape((B, -1, self.emb_d))
-                Ev = P_[:, i:, :].reshape((B, -1, self.emb_d))
-
-            else:
-                i = int(self.e_p_length / 2)
-                Ek = P_[:, :, :i, :].reshape(
-                    (B, -1, self.emb_d))  # shape == (B, self.top_k * i, self.embedding_dimension)
-                Ev = P_[:, :, i:, :].reshape((B, -1, self.emb_d))
-
-        if e_valid:
+            i = int(self.e_p_length / 2)
+            Ek = P_[:, :i, :].reshape((B, -1, self.emb_d))
+            Ev = P_[:, i:, :].reshape((B, -1, self.emb_d))
             p_return = [Ek, Ev]
-        else:
-            p_return = None
 
-        # return
-        if train:
-            return p_return, 0, x_block
-        else:
-            return p_return, 0, x_block
+        return p_return, 0, x_block
 
 
 # note - ortho init has not been found to help l2p/dual prompt
@@ -481,13 +472,13 @@ class ViTZoo(nn.Module):
     def forward(self, x, pen=False, train=False, use_prompt=True, possible_task_id=None):
         prompt_loss = 0
         if self.prompt is not None:
-            with torch.no_grad():
-                q, _ = self.feat(x)
-                q = q[:, 0, :]  # [class] token!!!, having shape == (B, 1, self.embedding_dimension)
+            q = self.retrieve_query_vector(x)
             if use_prompt:
-                out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id, possible_task_id=possible_task_id)
+                out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id,
+                                             possible_task_id=possible_task_id)
             else:
-                out, prompt_loss = self.feat(x, prompt=None, q=q, train=train, task_id=self.task_id, possible_task_id=possible_task_id)
+                out, prompt_loss = self.feat(x, prompt=None, q=q, train=train, task_id=self.task_id,
+                                             possible_task_id=possible_task_id)
             last_feature = out[:, 0, :]
         else:
             out, _ = self.feat(x)
