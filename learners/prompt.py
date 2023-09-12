@@ -173,12 +173,12 @@ class ContrastivePrototypicalPrompt(Prompt):
                     y = y.cuda()
 
                 if is_perturbed: # if update perturbed prototype then USE PROMPT
-                    last_feature = self.model(x, pen=True, train=False, use_prompt=True)
+                    last_feature, _ = self.model(x, pen=True, train=False, use_prompt=True)
                     # MAKE SURE THAT SELF.MLP_NECK IS PROPERLY UPDATED
                     last_feature = self.MLP_neck(last_feature)
 
                 else: # if update key prototype then DO NOT USE PROMPT
-                    last_feature = self.model(x, pen=True, train=False, use_prompt=False)
+                    last_feature, _ = self.model(x, pen=True, train=False, use_prompt=False)
 
                 list_last_feature.append(last_feature)
                 list_output.append(y)
@@ -187,7 +187,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             outputs = torch.cat(list_output, dim=0) # corresponding output of all feature vectors
             uni_output = torch.unique(outputs) # retrieve all class_id in train_loader
             for class_id in uni_output:
-                prototype = torch.mean(last_features[uni_output == class_id], dim=0) # calculate prototype by mean of vectors
+                prototype = torch.mean(last_features[outputs == class_id], dim=0) # calculate prototype by mean of vectors
                 if is_perturbed: # perturb prototype with Unit Multivariate Gaussian
                     prototype = prototype + torch.randn_like(prototype)
                 prototype_set[class_id] = prototype
