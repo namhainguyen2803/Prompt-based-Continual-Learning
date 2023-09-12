@@ -14,6 +14,7 @@ class ContrastivePrototypicalLoss(nn.Module):
         super(ContrastivePrototypicalLoss, self).__init__()
         self.temperature = temperature
         self.reduction = reduction
+        self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def forward(self, z_feature, label, previous_prototype=None):
 
@@ -40,7 +41,7 @@ class ContrastivePrototypicalLoss(nn.Module):
 
         # create mask_for_same_classes, 1 if same class, 0 if not same class or itself
         # in mask, each row is the mask for corresponding instance
-        mask_for_same_classes = torch.zeros(batch_size, batch_size + num_prototype)
+        mask_for_same_classes = torch.zeros(batch_size, batch_size + num_prototype).to(self._device)
         labels = label.contiguous().view(-1, 1)
         current_task_mask = torch.eq(labels, labels.T).float() # 1 if same class, 0 if not same class
         mask_for_same_classes[:batch_size, :batch_size] = current_task_mask
@@ -55,11 +56,11 @@ class ContrastivePrototypicalLoss(nn.Module):
         z_dot_z_T = z_dot_z_T - max_z_dot_z_T.detach() # shape == (batch_size, batch_size + num_prototype)
 
         # sum_for_same_class(z.z^T) - log( sum_for_different_class( exp(z.z^T) )
-        loss_for_each_instance = torch.sum(z_dot_z_T * mask_for_same_classes, dim=1, keepdim=True) - \
+        loss_for_each_instance = (-1 / torch.sum(mask_for_same_classes, dim=1, keepdim=True)).reshape(-1, 1) * \
+                                 torch.sum(z_dot_z_T * mask_for_same_classes, dim=1, keepdim=True) - \
                                  torch.log(torch.sum(torch.exp(z_dot_z_T * mask_for_different_classes), dim=1, keepdim=True) -
                                            torch.sum(1 - mask_for_different_classes, dim=1, keepdim=True))
         assert loss_for_each_instance.shape == (batch_size, 1), "loss_for_each_instance.shape != (batch_size, 1)"
-
         if self.reduction == "mean":
             return torch.mean(loss_for_each_instance)
         elif self.reduction == "sum":
@@ -73,9 +74,9 @@ if __name__ == "__main__":
                               [-0.8425, -2.2244, 0.6984],
                               [-0.1734, -0.9198, -1.5337],
                               [-0.2995, 0.7109, 1.5230],
-                              [-0.2606, 0.1352, -1.2000]])
-    label = torch.Tensor([2, 0, 0, 1, 2])
+                              [-0.2606, 0.1352, -1.2000]]).to(cpp_loss._device)
+    label = torch.Tensor([2, 0, 0, 1, 2]).to(cpp_loss._device)
     previous_prototype = torch.Tensor([[ 0.6475, -1.1527, -0.9547],
-                                        [-0.0105, -0.9611, -1.0651]])
+                                        [-0.0105, -0.9611, -1.0651]]).to(cpp_loss._device)
     loss_value = cpp_loss(z_feature, label)
     print(loss_value[0]) # it should be around -1.4323, according to my manual calculation
