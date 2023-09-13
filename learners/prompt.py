@@ -145,6 +145,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
         self.key_prototype = dict()
         self.value_prototype = dict()
+        self.avg_variance = dict()
         self.MLP_neck = None
 
         self._generate_mapping_class_to_task() # generate mapping from class_id to task_id, used for evaluation
@@ -159,7 +160,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def _update_prototype_set(self, prototype_set, train_loader, use_prompt=False):
         """
-        Function to update prototype of previous class. Only update prototype after updating feature_extractor(prompt)
+        Function to update prototype of previous class.
         """
         with torch.no_grad():
             list_last_feature = list()
@@ -171,22 +172,26 @@ class ContrastivePrototypicalPrompt(Prompt):
                     x = x.cuda()
                     y = y.cuda()
 
-                if use_prompt: # if update perturbed prototype then USE PROMPT
+                if use_prompt:
                     last_feature, _ = self.model(x, pen=True, train=False, use_prompt=True, possible_task_id=task.reshape(-1,1))
-                    # MAKE SURE THAT SELF.MLP_NECK IS PROPERLY UPDATED
-                else: # if update key prototype then DO NOT USE PROMPT
+                else:
                     last_feature, _ = self.model(x, pen=True, train=False, use_prompt=False)
 
                 list_last_feature.append(last_feature)
                 list_output.append(y)
 
-            last_features = torch.cat(list_last_feature, dim=0) # all feature vectors in train_loader
-            outputs = torch.cat(list_output, dim=0) # corresponding output of all feature vectors
-            uni_output = sorted(torch.unique(outputs).tolist()) # retrieve all class_id in train_loader
+            last_features = torch.cat(list_last_feature, dim=0)
+            outputs = torch.cat(list_output, dim=0)
+            uni_output = sorted(torch.unique(outputs).tolist())
 
             for class_id in uni_output:
-                prototype = torch.mean(last_features[outputs == class_id], dim=0) # calculate prototype by mean of vectors
+                feature_set_for_class_id = last_features[outputs == class_id]
+                assert feature_set_for_class_id.ndim == 2, "feature_set_for_class_id.ndim != 2."
+                prototype = torch.mean(feature_set_for_class_id, dim=0)
                 prototype_set[class_id] = prototype
+                if use_prompt:
+                    row_variances = torch.var(feature_set_for_class_id, dim=1)
+                    self.avg_variance[class_id] = torch.mean(row_variances)
             return prototype_set
 
     def _update_key_prototype(self, train_loader):
@@ -196,7 +201,6 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = self._update_prototype_set(prototype_set=self.value_prototype, train_loader=train_loader, use_prompt=True)
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True, need_acc=False):
-        # update key prototype (not include prompt)
         print("##### Attempt to update key prototype set. #####")
         self._update_key_prototype(train_loader)
         print("##### Finish updating key prototype set. #####")
@@ -207,7 +211,6 @@ class ContrastivePrototypicalPrompt(Prompt):
         print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
         super().learn_batch(train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True, need_acc=False)
         print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
-        # update perturbed prototype set after learning prompt and MLP_neck
         print("##### Attempt to update value prototype set. #####")
         self._update_value_prototype(train_loader)
         print("##### Finish updating value prototype set. #####")
@@ -227,6 +230,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             for class_id, value_prototype_set in self.value_prototype.items():
                 all_previous_value_prototype.append(value_prototype_set)
             all_previous_value_prototype = torch.cat(all_previous_value_prototype, dim=0)
+            all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
             n_z_feature = nn.functional.normalize(z_feature, dim=1)
             total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
                                                  previous_prototype=all_previous_value_prototype)
@@ -242,7 +246,18 @@ class ContrastivePrototypicalPrompt(Prompt):
         return total_loss.detach(), logits
 
     def _perturb_key_prototype(self, prototype):
-        return prototype + torch.randn_like(prototype)
+        with torch.no_grad():
+            avg_var = list()
+            for class_id, avg_var_for_each_class in self.avg_variance.items():
+                avg_var.append(avg_var_for_each_class)
+            avg_var = torch.cat(avg_var, dim=0).reshape(-1, 1)
+            assert avg_var.shape[0] == prototype.shape[0], "avg_var.shape[0] != prototype.shape[0]"
+            vect_dim = prototype.shape[1]
+            num_instances = prototype.shape[0]
+            mean = torch.zeros(vect_dim)
+            covariance = torch.eye(vect_dim)
+            gaussian_noise = torch.distributions.MultivariateNormal(mean, covariance).sample(num_instances,)
+            return prototype + avg_var * gaussian_noise
 
     def _reset_MLP_neck(self):
         if self.MLP_neck is not None:
@@ -273,7 +288,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                 U.append(self.key_prototype[class_id].unsqueeze(0))
                 U_hat.append(self.value_prototype[class_id].unsqueeze(0))
             U = torch.cat(U, dim=0)
-            U_hat = torch.cat(U_hat, dim=0) # shape == (num_classes, self.emb_d)
+            U_hat = torch.cat(U_hat, dim=0)
             assert U.ndim == 2, "Wrong in shape U."
             assert U_hat.ndim == 2, "Wrong in shape U_hat."
             x_query = self.model.retrieve_query_vector(input) # query of input, shape == (B, self.emb_d)
@@ -285,10 +300,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             top_k = torch.topk(cos_sim, self.model.prompt.top_k, dim=1)
             class_idx = top_k.indices  # shape == (B, self.top_k)
-            # have already had k class_id, we need to find their corresponding task to retrieve task-specific prompt
             possible_task_id = torch.zeros_like(class_idx)
-            # here, we map each class_id to its corresponding task_id via mapping class_to_task
-            # prototype.shape[0] is the number of classes seen so far
             for cid in range(U.shape[0]):
                 possible_task_id[class_idx == cid] = self.mapping_class_to_task[cid]
 
@@ -307,12 +319,8 @@ class ContrastivePrototypicalPrompt(Prompt):
             assert n_fine_grained_query.shape == (B, top_k, self.model.prompt.emb_d), "Wrong in _evaluate method (2)."
 
             likelihood_among_top_k_classes = torch.einsum('bij,kj->bki', n_fine_grained_query, n_U_hat)
-            # likelihood_among_top_k_classes.shape == (B, num_classes, self.model.prompt.top_k)
             max_likelihood_among_k_classes = torch.max(likelihood_among_top_k_classes, dim=-1).values
             assert max_likelihood_among_k_classes.shape == (B, self.valid_out_dim), "Wrong in _evaluate method (3)."
-
-            # decision = torch.argmax(max_likelihood_among_k_classes, dim=1)
-            # assert decision.shape[0] == B, "Wrong in _evaluate method (4)."
 
             if task_in is None:
                 output = max_likelihood_among_k_classes

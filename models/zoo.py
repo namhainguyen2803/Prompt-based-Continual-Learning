@@ -386,15 +386,14 @@ class ContrastivePrototypicalPrompt(DualPrompt):
         # e prompts
         B, C = x_query.shape
         if not train:
-            if possible_task_id is None: # if there is no possible_task_id then use task_id
+            if possible_task_id is None:
                 possible_task_id = torch.full((B, 1), task_id, dtype=torch.int64)
-            # assert possible_task_id is not None, "In test mode, possible_task_id cannot be None."
         else:
             assert task_id is not None, "In train mode, task_id cannot be None."
 
         p_return = None
         if l in self.e_layers:
-            B, C = x_query.shape  # C == self.emb_d == self.key_d
+            B, C = x_query.shape
             p = getattr(self, f'e_p_{l}')
 
             if train:  # CPP in training time, need to access to task-specific prompt
