@@ -386,6 +386,8 @@ class ContrastivePrototypicalPrompt(DualPrompt):
         # e prompts
         if not train:
             assert possible_task_id is not None, "In test mode, possible_task_id cannot be None."
+        else:
+            assert task_id is not None, "In train mode, task_id cannot be None."
 
         p_return = None
         if l in self.e_layers:

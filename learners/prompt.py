@@ -300,8 +300,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             likelihood_among_top_k_classes = torch.einsum('bij,kj->bki', n_fine_grained_query, n_U_hat)
             # likelihood_among_top_k_classes.shape == (B, num_classes, self.model.prompt.top_k)
             max_likelihood_among_k_classes = torch.max(likelihood_among_top_k_classes, dim=-1)
-            num_classes = likelihood_among_top_k_classes.shape[1]
-            assert max_likelihood_among_k_classes.shape == (B, num_classes), "Wrong in _evaluate method (3)."
+            assert max_likelihood_among_k_classes.shape == (B, self.valid_out_dim), "Wrong in _evaluate method (3)."
 
             decision = torch.argmax(max_likelihood_among_k_classes, dim=1)
             assert decision.shape == B, "Wrong in _evaluate method (4)."
