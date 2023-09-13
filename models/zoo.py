@@ -133,7 +133,7 @@ class CodaPrompt(nn.Module):
 
         return torch.nn.Parameter(uu)
 
-    def forward(self, x_query, l, x_block, train=False, task_id=None):
+    def forward(self, x_query, l, x_block, train=False, task_id=None, possible_task_id=None):
 
         # e prompts
         e_valid = False
@@ -251,7 +251,7 @@ class DualPrompt(nn.Module):
     def process_task_count(self):
         self.task_count += 1
 
-    def forward(self, x_query, l, x_block, train=False, task_id=None):
+    def forward(self, x_query, l, x_block, train=False, task_id=None, possible_task_id=None):
 
         # e prompts
         e_valid = False
@@ -384,8 +384,11 @@ class ContrastivePrototypicalPrompt(DualPrompt):
 
     def forward(self, x_query, l, x_block, train=False, task_id=None, possible_task_id=None):
         # e prompts
+        B, C = x_query.shape
         if not train:
-            assert possible_task_id is not None, "In test mode, possible_task_id cannot be None."
+            if possible_task_id is None: # if there is no possible_task_id then use task_id
+                possible_task_id = torch.full((B, 1), task_id, dtype=torch.int64)
+            # assert possible_task_id is not None, "In test mode, possible_task_id cannot be None."
         else:
             assert task_id is not None, "In train mode, task_id cannot be None."
 

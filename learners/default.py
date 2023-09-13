@@ -60,7 +60,7 @@ class NormalNN(nn.Module):
     def _create_criterion_fn(self):
         self.criterion_fn = nn.CrossEntropyLoss(reduction='none')
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True, need_acc=True):
         
         # try to load model
         need_train = True
@@ -79,15 +79,17 @@ class NormalNN(nn.Module):
         if need_train:
             # data weighting
             self.data_weighting(train_dataset)
-            losses = AverageMeter()
-            acc = AverageMeter()
+            if need_loss:
+                losses = AverageMeter()
+            if need_acc:
+                acc = AverageMeter()
             batch_time = AverageMeter()
             batch_timer = Timer()
             for epoch in range(self.config['schedule'][-1]):
                 self.epoch=epoch
 
-                if epoch > 0:
-                    self.scheduler.step()
+                # if epoch > 0:
+                #     self.scheduler.step()
                 for param_group in self.optimizer.param_groups:
                     self.log('LR:', param_group['lr'])
 
@@ -111,17 +113,25 @@ class NormalNN(nn.Module):
                     
                     # measure accuracy and record loss
                     y = y.detach()
-                    accumulate_acc(output, y, task, acc, topk=(self.top_k,))
-                    losses.update(loss,  y.size(0)) 
+                    if need_acc:
+                        accumulate_acc(output, y, task, acc, topk=(self.top_k,))
+                    if need_loss:
+                        losses.update(loss,  y.size(0))
                     batch_timer.tic()
 
                 # eval update
                 self.log('Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=self.epoch+1,total=self.config['schedule'][-1]))
-                self.log(' * Loss {loss.avg:.3f} | Train Acc {acc.avg:.3f}'.format(loss=losses,acc=acc))
-
+                if need_loss and need_acc:
+                    self.log(' * Loss {loss.avg:.3f} | Train Acc {acc.avg:.3f}'.format(loss=losses,acc=acc))
+                elif need_loss:
+                    self.log(' * Loss {loss.avg:.3f} |'.format(loss=losses))
+                elif need_acc:
+                    self.log(' * Loss {acc.avg:.3f} |'.format(acc=acc))
                 # reset
-                losses = AverageMeter()
-                acc = AverageMeter()
+                if need_loss:
+                    losses = AverageMeter()
+                if need_acc:
+                    acc = AverageMeter()
                 
         self.model.eval()
 
@@ -251,10 +261,10 @@ class NormalNN(nn.Module):
         self.optimizer = torch.optim.__dict__[self.config['optimizer']](**optimizer_arg)
         
         # create schedules
-        if self.schedule_type == 'cosine':
-            self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
-        elif self.schedule_type == 'decay':
-            self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
+        # if self.schedule_type == 'cosine':
+        #     self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
+        # elif self.schedule_type == 'decay':
+        #     self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
 
     def create_model(self):
         cfg = self.config

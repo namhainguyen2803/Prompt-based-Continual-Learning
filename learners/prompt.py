@@ -173,7 +173,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                     y = y.cuda()
 
                 if use_prompt: # if update perturbed prototype then USE PROMPT
-                    last_feature, _ = self.model(x, pen=True, train=False, use_prompt=True)
+                    last_feature, _ = self.model(x, pen=True, train=False, task_id=task, use_prompt=True)
                     # MAKE SURE THAT SELF.MLP_NECK IS PROPERLY UPDATED
                 else: # if update key prototype then DO NOT USE PROMPT
                     last_feature, _ = self.model(x, pen=True, train=False, use_prompt=False)
@@ -195,15 +195,22 @@ class ContrastivePrototypicalPrompt(Prompt):
     def _update_value_prototype(self, train_loader):
         self._update_prototype_set(prototype_set=self.value_prototype, train_loader=train_loader, use_prompt=True)
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True, need_acc=False):
         # update key prototype (not include prompt)
+        print("##### Attempt to update key prototype set. #####")
         self._update_key_prototype(train_loader)
+        print("##### Finish updating key prototype set. #####")
         # re-initialize MLP neck
         self._reset_MLP_neck()
+        print("Reset MLP neck.")
         # learn prompt
+        print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
         super().learn_batch(train_loader, train_dataset, model_save_dir, val_loader=None)
+        print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
         # update perturbed prototype set after learning prompt and MLP_neck
+        print("##### Attempt to update value prototype set. #####")
         self._update_value_prototype(train_loader)
+        print("##### Finish updating value prototype set. #####")
 
     def update_model(self, inputs, targets):
         """
@@ -306,7 +313,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             assert decision.shape == B, "Wrong in _evaluate method (4)."
 
             if task_in is None:
-                output = max_likelihood_among_k_classes[:, :self.valid_out_dim]
+                output = max_likelihood_among_k_classes
                 acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
             else:
                 output = max_likelihood_among_k_classes[:, task_in]

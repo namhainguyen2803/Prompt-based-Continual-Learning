@@ -44,7 +44,7 @@ class ContrastivePrototypicalLoss(nn.Module):
         current_task_mask = torch.eq(labels, labels.T).float() # 1 if same class, 0 if not same class
         mask_for_same_classes[:batch_size, :batch_size] = current_task_mask
         mask_for_different_classes = 1 - mask_for_same_classes # 0 if same class, 1 if not same class
-        mask_for_same_classes[range(batch_size), range(batch_size)] = 0 # 1 if same class, 0 if not same class or itself
+        # mask_for_same_classes[range(batch_size), range(batch_size)] = 0 # 1 if same class, 0 if not same class or itself
 
         # numerical stability
         # dim=1 -> max in row
