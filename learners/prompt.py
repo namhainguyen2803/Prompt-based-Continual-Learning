@@ -221,10 +221,10 @@ class ContrastivePrototypicalPrompt(Prompt):
         last_feature, logits, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
         z_feature = self.MLP_neck(last_feature)
 
-        if self.task_count > 1:
+        if self.task_count > 0:
             # retrieve all perturbed prototype set in a single tensor
             all_previous_value_prototype = list()
-            for class_id, value_prototype_set in self.value_prototype:
+            for class_id, value_prototype_set in self.value_prototype.items():
                 all_previous_value_prototype.append(value_prototype_set)
             all_previous_value_prototype = torch.cat(all_previous_value_prototype, dim=0)
             n_z_feature = nn.functional.normalize(z_feature, dim=1)
@@ -311,7 +311,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             assert max_likelihood_among_k_classes.shape == (B, self.valid_out_dim), "Wrong in _evaluate method (3)."
 
             decision = torch.argmax(max_likelihood_among_k_classes, dim=1)
-            assert decision.shape == B, "Wrong in _evaluate method (4)."
+            assert decision.shape[0] == B, "Wrong in _evaluate method (4)."
 
             if task_in is None:
                 output = max_likelihood_among_k_classes

@@ -88,8 +88,8 @@ class NormalNN(nn.Module):
             for epoch in range(self.config['schedule'][-1]):
                 self.epoch=epoch
 
-                # if epoch > 0:
-                #     self.scheduler.step()
+                if epoch > 0:
+                    self.scheduler.step()
                 for param_group in self.optimizer.param_groups:
                     self.log('LR:', param_group['lr'])
 
