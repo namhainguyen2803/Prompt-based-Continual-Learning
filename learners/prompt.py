@@ -266,6 +266,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         with torch.no_grad():
             # retrieve prototype set in a tensor with ascending order wrt class_id
             class_id_so_far = sorted(self.key_prototype.keys())
+            print(f"class id so far: {class_id_so_far}")
             U = list()
             U_hat = list()
             for class_id in class_id_so_far:
@@ -310,8 +311,8 @@ class ContrastivePrototypicalPrompt(Prompt):
             max_likelihood_among_k_classes = torch.max(likelihood_among_top_k_classes, dim=-1).values
             assert max_likelihood_among_k_classes.shape == (B, self.valid_out_dim), "Wrong in _evaluate method (3)."
 
-            decision = torch.argmax(max_likelihood_among_k_classes, dim=1)
-            assert decision.shape[0] == B, "Wrong in _evaluate method (4)."
+            # decision = torch.argmax(max_likelihood_among_k_classes, dim=1)
+            # assert decision.shape[0] == B, "Wrong in _evaluate method (4)."
 
             if task_in is None:
                 output = max_likelihood_among_k_classes
