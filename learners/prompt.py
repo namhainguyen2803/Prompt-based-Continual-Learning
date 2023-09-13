@@ -172,7 +172,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                     y = y.cuda()
 
                 if use_prompt: # if update perturbed prototype then USE PROMPT
-                    last_feature, _ = self.model(x, pen=True, train=False, use_prompt=True, possible_task_id=task)
+                    last_feature, _ = self.model(x, pen=True, train=False, use_prompt=True, possible_task_id=task.reshape(-1,1))
                     # MAKE SURE THAT SELF.MLP_NECK IS PROPERLY UPDATED
                 else: # if update key prototype then DO NOT USE PROMPT
                     last_feature, _ = self.model(x, pen=True, train=False, use_prompt=False)
@@ -182,7 +182,8 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             last_features = torch.cat(list_last_feature, dim=0) # all feature vectors in train_loader
             outputs = torch.cat(list_output, dim=0) # corresponding output of all feature vectors
-            uni_output = torch.unique(outputs) # retrieve all class_id in train_loader
+            uni_output = sorted(torch.unique(outputs).tolist()) # retrieve all class_id in train_loader
+
             for class_id in uni_output:
                 prototype = torch.mean(last_features[outputs == class_id], dim=0) # calculate prototype by mean of vectors
                 prototype_set[class_id] = prototype
@@ -268,11 +269,12 @@ class ContrastivePrototypicalPrompt(Prompt):
             U = list()
             U_hat = list()
             for class_id in class_id_so_far:
-                U.append(self.key_prototype[class_id])
-                U_hat.append(self.value_prototype[class_id])
+                U.append(self.key_prototype[class_id].unsqueeze(0))
+                U_hat.append(self.value_prototype[class_id].unsqueeze(0))
             U = torch.cat(U, dim=0)
             U_hat = torch.cat(U_hat, dim=0) # shape == (num_classes, self.emb_d)
-
+            assert U.ndim == 2, "Wrong in shape U."
+            assert U_hat.ndim == 2, "Wrong in shape U_hat."
             x_query = self.model.retrieve_query_vector(input) # query of input, shape == (B, self.emb_d)
             B, C = x_query.shape
             # cosine similarity to match keys/queries
