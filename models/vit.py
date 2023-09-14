@@ -14,35 +14,6 @@ from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_, DropPath
 from timm.models.helpers import named_apply, adapt_input_conv
 
-class MLP(nn.Module):
-    def __init__(self, in_feature=28*28, hidden_features=[256], out_feature=None, act_layer=nn.ReLU, drop=0.):
-        super().__init__()
-        self.in_feature = in_feature
-        self.out_feature = out_feature or self.in_feature
-        self.hidden_features = hidden_features
-        self.act = act_layer()
-        self.drop = nn.Dropout(drop)
-
-        self.net = nn.ModuleDict()
-        net_features = np.hstack((np.array([self.in_feature]), np.array(self.hidden_features)), np.array([self.out_feature]))
-        assert net_features == len(hidden_features) + 2, "Wrong in MLP class."
-        for idx in range(len(net_features) - 1):
-            fc_name = "fc" + str(idx+1)
-            act_name = "act" + str(idx+1)
-            drop_name = "drop" + str(idx+1)
-            self.net.update({
-                fc_name: nn.Linear(net_features[idx], net_features[idx+1]),
-                act_name: self.act,
-                drop_name: self.drop
-            })
-            if idx == len(net_features) - 2: # last layer, no need activation function
-                final_act = act_name
-                self.net.pop(final_act)
-
-    def forward(self, x):
-        out = self.net(x)
-        return out
-
 class Mlp(nn.Module):
     """ MLP as used in Vision Transformer, MLP-Mixer and related networks
     """

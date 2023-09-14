@@ -67,7 +67,7 @@ class NormalNN(nn.Module):
         if not self.overwrite:
             try:
                 self.load_model(model_save_dir)
-                # need_train = False
+                need_train = False
             except:
                 print("Cannot load model")
 

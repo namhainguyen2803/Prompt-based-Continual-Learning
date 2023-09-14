@@ -17,6 +17,7 @@ from utils.schedulers import CosineSchedule
 from torch.autograd import Variable, Function
 from models.vit import Mlp
 from .CPL import ContrastivePrototypicalLoss
+from models.emb_proj import EmbeddingProjection
 
 class Prompt(NormalNN):
 
@@ -251,7 +252,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             avg_var = list()
             for class_id, avg_var_for_each_class in self.avg_variance.items():
                 avg_var.append(avg_var_for_each_class) # avg_var_for_each_class is a number
-            avg_var = torch.cat(avg_var, dim=0).reshape(-1, 1).cuda()
+            avg_var = torch.tensor(avg_var).unsqueeze(-1).cuda()
             assert avg_var.shape[0] == prototype.shape[0], "avg_var.shape[0] != prototype.shape[0]"
             vect_dim = prototype.shape[1]
             num_instances = prototype.shape[0]
@@ -263,7 +264,7 @@ class ContrastivePrototypicalPrompt(Prompt):
     def _reset_MLP_neck(self):
         if self.MLP_neck is not None:
             del self.MLP_neck
-        self.MLP_neck = Mlp(in_features=768, hidden_features=2048, out_features=768, act_layer=nn.ReLU, drop=0.).cuda()
+        self.MLP_neck = EmbeddingProjection().cuda()
 
     def _learnable_params(self):
         if len(self.config['gpuid']) > 1:
