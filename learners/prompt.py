@@ -173,6 +173,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                     y = y.cuda()
 
                 if use_prompt:
+                    # can have previous tasks(?)
                     last_feature, _ = self.model(x, pen=True, train=False, use_prompt=True, possible_task_id=task.reshape(-1,1))
                 else:
                     last_feature, _ = self.model(x, pen=True, train=False, use_prompt=False)
@@ -228,7 +229,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             # retrieve all perturbed prototype set in a single tensor
             all_previous_value_prototype = list()
             for class_id, value_prototype_set in self.value_prototype.items():
-                all_previous_value_prototype.append(value_prototype_set)
+                all_previous_value_prototype.append(value_prototype_set.unsqueeze(0))
             all_previous_value_prototype = torch.cat(all_previous_value_prototype, dim=0)
             all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
             n_z_feature = nn.functional.normalize(z_feature, dim=1)
@@ -249,14 +250,14 @@ class ContrastivePrototypicalPrompt(Prompt):
         with torch.no_grad():
             avg_var = list()
             for class_id, avg_var_for_each_class in self.avg_variance.items():
-                avg_var.append(avg_var_for_each_class)
-            avg_var = torch.cat(avg_var, dim=0).reshape(-1, 1)
+                avg_var.append(avg_var_for_each_class) # avg_var_for_each_class is a number
+            avg_var = torch.cat(avg_var, dim=0).reshape(-1, 1).cuda()
             assert avg_var.shape[0] == prototype.shape[0], "avg_var.shape[0] != prototype.shape[0]"
             vect_dim = prototype.shape[1]
             num_instances = prototype.shape[0]
             mean = torch.zeros(vect_dim)
             covariance = torch.eye(vect_dim)
-            gaussian_noise = torch.distributions.MultivariateNormal(mean, covariance).sample(num_instances,)
+            gaussian_noise = torch.distributions.MultivariateNormal(mean, covariance).sample([num_instances]).cuda()
             return prototype + avg_var * gaussian_noise
 
     def _reset_MLP_neck(self):

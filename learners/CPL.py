@@ -44,16 +44,12 @@ class ContrastivePrototypicalLoss(nn.Module):
         current_task_mask = torch.eq(labels, labels.T).float() # 1 if same class, 0 if not same class
         mask_for_same_classes[:batch_size, :batch_size] = current_task_mask
         mask_for_different_classes = 1 - mask_for_same_classes # 0 if same class, 1 if not same class
-        # mask_for_same_classes[range(batch_size), range(batch_size)] = 0 # 1 if same class, 0 if not same class or itself
 
         # numerical stability
-        # dim=1 -> max in row
-        # dim=0 -> max in column
         max_z_dot_z_T = torch.max(z_dot_z_T, dim=1, keepdim=True).values
         assert max_z_dot_z_T.shape == (batch_size, 1), "max_z_dot_z_T.shape != (batch_size, 1)."
-        z_dot_z_T = z_dot_z_T - max_z_dot_z_T.detach() # shape == (batch_size, batch_size + num_prototype)
+        z_dot_z_T = z_dot_z_T - max_z_dot_z_T.detach()
 
-        # sum_for_same_class(z.z^T) - log( sum_for_different_class( exp(z.z^T) )
         loss_for_each_instance = (-1 / torch.sum(mask_for_same_classes, dim=1, keepdim=True)).reshape(-1, 1) * \
                                  torch.sum(z_dot_z_T * mask_for_same_classes, dim=1, keepdim=True) - \
                                  torch.log(torch.sum(torch.exp(z_dot_z_T * mask_for_different_classes), dim=1, keepdim=True) -

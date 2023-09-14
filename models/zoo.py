@@ -243,9 +243,8 @@ class DualPrompt(nn.Module):
         self.g_layers = [0, 1]
         self.e_layers = [2, 3, 4]
 
-        # prompt pool size
-        self.g_p_length = int(prompt_param[2])  # number of g_prompt per layer
-        self.e_p_length = int(prompt_param[1])  # number of e_prompt per layer
+        self.g_p_length = int(prompt_param[2])
+        self.e_p_length = int(prompt_param[1])
         self.e_pool_size = int(prompt_param[0])
 
     def process_task_count(self):
@@ -258,28 +257,24 @@ class DualPrompt(nn.Module):
         if l in self.e_layers:
             e_valid = True
             B, C = x_query.shape
-            K = getattr(self, f'e_k_{l}')  # 0 based indexing here
-            # K.shape == (self.e_pool_size, self.key_d)
-            p = getattr(self, f'e_p_{l}')  # 0 based indexing here
-            # p.shape == (self.e_pool_size, self.e_p_length, self.emb_d)
+            K = getattr(self, f'e_k_{l}')
+            p = getattr(self, f'e_p_{l}')
 
             # cosine similarity to match keys/queries
-            n_K = nn.functional.normalize(K, dim=1)  # shape == (self.e_pool_size, self.key_d)
-            q = nn.functional.normalize(x_query, dim=1).detach()  # shape == (B, self.emb_d)
+            n_K = nn.functional.normalize(K, dim=1)
+            q = nn.functional.normalize(x_query, dim=1).detach()
             cos_sim = torch.einsum('bj,kj->bk', q, n_K)
 
             if train:
                 # dual prompt during training uses task id
                 if self.task_id_bootstrap:
                     loss = (1.0 - cos_sim[:, task_id]).sum()
-                    # simply duplicate p[task_id], which is just one prompt param, to every instance.
-                    P_ = p[task_id].expand(B, -1, -1)  # shape == (B, self.e_p_length, self.emb_d)
+                    P_ = p[task_id].expand(B, -1, -1)
                 else:
                     top_k = torch.topk(cos_sim, self.top_k, dim=1)
-                    k_idx = top_k.indices  # shape of k_idx == (B, self.top_k)
+                    k_idx = top_k.indices
                     loss = (1.0 - cos_sim[:, k_idx]).sum()
-                    # select the selected prompt param, based on similarity between query of x and key of prompt param
-                    P_ = p[k_idx]  # shape == (B, self.top_k, self.e_p_length, self.emb_d)
+                    P_ = p[k_idx]
             else:
                 top_k = torch.topk(cos_sim, self.top_k, dim=1)
                 k_idx = top_k.indices
@@ -370,14 +365,13 @@ class ContrastivePrototypicalPrompt(DualPrompt):
 
     def _init_smart(self, emb_d, prompt_param):
         # prompt locations
-        # in CPP, there is no shared prompt, just task-specific prompt
-        self.e_layers = [0, 1, 2, 3, 4]  # e prompt(expert prompt): task-specific prompt
-        self.g_layers = []  # g prompt(general prompt): shared prompt
+        self.e_layers = [0, 1, 2, 3, 4]
+        self.g_layers = []
 
         # prompt pool size
-        self.g_p_length = int(prompt_param[2])  # length of g_prompt per layer (no need to define)
-        self.e_p_length = int(prompt_param[1])  # length of e_prompt per layer
-        self.e_pool_size = int(prompt_param[0])  # number of e_prompt per layer (should be larger than number of task)
+        self.g_p_length = int(prompt_param[2])
+        self.e_p_length = int(prompt_param[1])
+        self.e_pool_size = int(prompt_param[0])
 
         self.task_id_bootstrap = True
         self.top_k = 5
@@ -390,20 +384,17 @@ class ContrastivePrototypicalPrompt(DualPrompt):
                 possible_task_id = torch.full((B, 1), task_id, dtype=torch.int64)
         else:
             assert task_id is not None, "In train mode, task_id cannot be None."
-
         p_return = None
         if l in self.e_layers:
             B, C = x_query.shape
             p = getattr(self, f'e_p_{l}')
-
             if train:  # CPP in training time, need to access to task-specific prompt
                 # no need cos-sim loss
-                P_ = p[task_id].expand(B, -1, -1)  # shape == (B, self.e_p_length, self.emb_d)
-
+                P_ = p[task_id].expand(B, -1, -1)
             else:  # CPP in testing time, but differs than that of DualPrompt!
                 assert possible_task_id.shape == (B, 1), "Wrong in class ContrastivePrototypicalPrompt(DualPrompt)."
-                P_ = p[possible_task_id]  # shape == (B, 1, self.e_p_length, self.emb_d)
-                P_ = P_.squeeze(1)  # shape == (B, self.e_p_length, self.emb_d)
+                P_ = p[possible_task_id]
+                P_ = P_.squeeze(1)
 
             # select prompts
             # Prefix prompt
@@ -463,13 +454,12 @@ class ViTZoo(nn.Module):
         else:
             self.prompt = None
 
-        # feature encoder changes if transformer vs resnet
         self.feat = zoo_model
 
     def retrieve_query_vector(self, x):
         with torch.no_grad():
             q, _ = self.feat(x)
-            q = q[:, 0, :]  # [class] token!!!, having shape == (B, 1, self.embedding_dimension)
+            q = q[:, 0, :]
             return q
 
     # pen: get penultimate(final) features
@@ -488,8 +478,8 @@ class ViTZoo(nn.Module):
             out, _ = self.feat(x)
             last_feature = out[:, 0, :]
 
-        last_feature = last_feature.view(last_feature.size(0), -1)  # final feature vector
-        logits = self.last(last_feature)  # logits, after going to last layer
+        last_feature = last_feature.view(last_feature.size(0), -1)
+        logits = self.last(last_feature)
 
         if not pen:
             if self.prompt is not None and train:
