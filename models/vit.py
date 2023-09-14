@@ -62,7 +62,7 @@ class Attention(nn.Module):
     def get_attention_map(self):
         return self.attention_map
     
-    def forward(self, x, register_hook=False, prompt=None):
+    def forward(self, x, register_hook=False, prompt=None, prompt_type="prefix"):
         B, N, C = x.shape
         # B is number of batch size
         # N is number of feature vectors (number of patches sub images + 1)
@@ -72,12 +72,17 @@ class Attention(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
 
         if prompt is not None:
-            pk, pv = prompt
-            pk = pk.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-            pv = pv.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-            k = torch.cat((pk,k), dim=2) # shape == (B, self.num_heads, N + self.top_k * i, C // self.num_heads)
-            v = torch.cat((pv,v), dim=2) # shape == (B, self.num_heads, N + self.top_k * i, C // self.num_heads)
-
+            if prompt_type == "prefix":
+                pk, pv = prompt
+                pk = pk.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+                pv = pv.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+                k = torch.cat((pk,k), dim=2) # shape == (B, self.num_heads, N + self.top_k * i, C // self.num_heads)
+                v = torch.cat((pv,v), dim=2) # shape == (B, self.num_heads, N + self.top_k * i, C // self.num_heads)
+            elif prompt_type == "tuning":
+                prompt = prompt.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+                k = torch.cat((prompt, k), dim=2)
+                v = torch.cat((prompt, v), dim=2)
+                q = torch.cat((prompt, q), dim=2)
         attn = (q @ k.transpose(-2, -1)) * self.scale
         # q @ k.transpose(-2, -1) having shape == (B, self.num_heads, N, N + self.top_k * i)
         attn = attn.softmax(dim=-1) # shape == (B, self.num_heads, N, N + self.top_k * i)

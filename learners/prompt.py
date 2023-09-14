@@ -253,15 +253,15 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def _perturb_key_prototype(self, prototype):
         with torch.no_grad():
+            vect_dim = prototype.shape[1]
+            num_instances = prototype.shape[0]
             avg_var = list()
             for class_id, avg_var_for_each_class in self.avg_variance.items():
                 avg_var.append(avg_var_for_each_class) # avg_var_for_each_class is a number
             avg_var = torch.tensor(avg_var)
             assert avg_var.shape[0] * self._num_anchor_per_class == prototype.shape[0]
             # stretch avg_var to be the same size as prototype.shape[0]
-            avg_var = avg_var.expand(prototype.shape[0]).unsqueeze(-1).cuda()
-            vect_dim = prototype.shape[1]
-            num_instances = prototype.shape[0]
+            avg_var = avg_var.repeat(self._num_anchor_per_class).unsqueeze(-1).cuda()
             mean = torch.zeros(vect_dim)
             covariance = torch.eye(vect_dim)
             gaussian_noise = torch.distributions.MultivariateNormal(mean, covariance).sample([num_instances]).cuda()
@@ -313,7 +313,10 @@ class ContrastivePrototypicalPrompt(Prompt):
             for class_id in range(self.valid_out_dim):
                 # [0, 5]
                 class_range = (class_id * self._num_anchor_per_class, (class_id + 1) * self._num_anchor_per_class)
-                torch.where(condition=(ranking >= class_range[0]) & (ranking < class_range[1]), input=class_id, other=0, out=possible_task_id)
+                torch.where(condition=(ranking >= class_range[0]) & (ranking < class_range[1]),
+                            input=torch.tensor(class_id, dtype=torch.float32),
+                            other=torch.tensor(0, dtype=torch.float32),
+                            out=possible_task_id)
 
             fine_grained_query = list()
             for top in range(top_k):
