@@ -28,8 +28,9 @@ class MLP(nn.Module):
                 self.net.pop(final_act)
 
     def forward(self, x):
-        out = self.net(x)
-        return out
+        for key, module in self.net.items():
+            x = module(x)
+        return x
 
 def EmbeddingProjection():
     model = MLP(in_feature=768, hidden_features=[2048, 2048], out_feature=768, act_layer=nn.ReLU, drop=0.)
