@@ -365,7 +365,7 @@ class ContrastivePrototypicalPrompt(DualPrompt):
 
     def _init_smart(self, emb_d, prompt_param):
         # prompt locations
-        self.e_layers = [0, 1, 2, 3, 4]
+        self.e_layers = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
         self.g_layers = []
 
         # prompt pool size
@@ -374,7 +374,7 @@ class ContrastivePrototypicalPrompt(DualPrompt):
         self.e_pool_size = int(prompt_param[0])
 
         self.task_id_bootstrap = True
-        self.top_k = 5
+        self.top_k = 3
 
     def forward(self, x_query, l, x_block, train=False, task_id=None, possible_task_id=None):
         # e prompts

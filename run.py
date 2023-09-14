@@ -142,10 +142,10 @@ if __name__ == '__main__':
                     avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,args.repeat))
 
         # train model
-        avg_metrics = trainer.train(avg_metrics)  
+        avg_metrics, learner = trainer.train(avg_metrics)
 
         # evaluate model
-        avg_metrics = trainer.evaluate(avg_metrics)    
+        avg_metrics = trainer.evaluate(avg_metrics, learner)
 
         # save results
         for mkey in metric_keys: 

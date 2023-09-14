@@ -48,10 +48,11 @@ class CosineSchedule(_LRScheduler):
 
     def __init__(self, optimizer, K):
         self.K = K
+        self.lr_min = 1e-6
         super().__init__(optimizer, -1)
 
     def cosine(self, base_lr):
-        return base_lr * math.cos((99 * math.pi * (self.last_epoch)) / (200 * (self.K-1)))
+        return max(base_lr * math.cos((99 * math.pi * (self.last_epoch)) / (200 * (self.K-1))), self.lr_min)
 
     def get_lr(self):
         return [self.cosine(base_lr) for base_lr in self.base_lrs]

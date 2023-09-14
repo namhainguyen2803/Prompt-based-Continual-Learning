@@ -1,7 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="9eeb10e5-bdba-40da-a1d1-75f4c29ba796" name="Changes" comment="" />
+    <list default="true" id="9eeb10e5-bdba-40da-a1d1-75f4c29ba796" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/models/clustering_algorithm.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/configs/cifar-100_prompt.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/configs/cifar-100_prompt.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/experiments/cifar-100.sh" beforeDir="false" afterPath="$PROJECT_DIR$/experiments/cifar-100.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/learners/default.py" beforeDir="false" afterPath="$PROJECT_DIR$/learners/default.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/learners/prompt.py" beforeDir="false" afterPath="$PROJECT_DIR$/learners/prompt.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/emb_proj.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/emb_proj.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/zoo.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/zoo.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run.py" beforeDir="false" afterPath="$PROJECT_DIR$/run.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/trainer.py" beforeDir="false" afterPath="$PROJECT_DIR$/trainer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/schedulers.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/schedulers.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -36,6 +48,11 @@
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;
   }
 }</component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/models" />
+    </key>
+  </component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">

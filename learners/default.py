@@ -256,15 +256,17 @@ class NormalNN(nn.Module):
             self.config['optimizer'] = 'Adam'
         elif self.config['optimizer'] == 'Adam':
             optimizer_arg['betas'] = (self.config['momentum'],0.999)
+        elif self.config["optimizer"] == "AdamW":
+            optimizer_arg["betas"] = (0.9, 0.999)
 
         # create optimizers
         self.optimizer = torch.optim.__dict__[self.config['optimizer']](**optimizer_arg)
         
         # create schedules
-        # if self.schedule_type == 'cosine':
-        #     self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
-        # elif self.schedule_type == 'decay':
-        #     self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
+        if self.schedule_type == 'cosine':
+            self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
+        elif self.schedule_type == 'decay':
+            self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
 
     def create_model(self):
         cfg = self.config

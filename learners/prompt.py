@@ -18,7 +18,7 @@ from torch.autograd import Variable, Function
 from models.vit import Mlp
 from .CPL import ContrastivePrototypicalLoss
 from models.emb_proj import EmbeddingProjection
-
+from models.clustering_algorithm import KMeans
 class Prompt(NormalNN):
 
     def __init__(self, learner_config):
@@ -72,6 +72,8 @@ class Prompt(NormalNN):
             self.config['optimizer'] = 'Adam'
         elif self.config['optimizer'] == 'Adam':
             optimizer_arg['betas'] = (self.config['momentum'],0.999)
+        elif self.config["optimizer"] == "AdamW":
+            optimizer_arg["betas"] = (0.9, 0.999)
 
         # create optimizers
         self.optimizer = torch.optim.__dict__[self.config['optimizer']](**optimizer_arg)
@@ -184,12 +186,13 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             last_features = torch.cat(list_last_feature, dim=0)
             outputs = torch.cat(list_output, dim=0)
+            cluster_algorithm = KMeans(num_classes=5)
             uni_output = sorted(torch.unique(outputs).tolist())
-
             for class_id in uni_output:
                 feature_set_for_class_id = last_features[outputs == class_id]
                 assert feature_set_for_class_id.ndim == 2, "feature_set_for_class_id.ndim != 2."
-                prototype = torch.mean(feature_set_for_class_id, dim=0)
+                cluster_algorithm.fit(feature_set_for_class_id)
+                prototype = cluster_algorithm.get_centroids()
                 prototype_set[class_id] = prototype
                 if use_prompt:
                     row_variances = torch.var(feature_set_for_class_id, dim=1)

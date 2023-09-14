@@ -216,7 +216,7 @@ class Trainer:
 
             if avg_train_time is not None: avg_metrics['time']['global'][i] = avg_train_time
 
-        return avg_metrics 
+        return avg_metrics, self.learner
     
     def summarize_acc(self, acc_dict, acc_table, acc_table_pt):
 
@@ -244,10 +244,10 @@ class Trainer:
         # repack dictionary and return
         return {'global': avg_acc_all,'pt': avg_acc_pt,'pt-local': avg_acc_pt_local}
 
-    def evaluate(self, avg_metrics):
+    def evaluate(self, avg_metrics, learner):
 
-        self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
-
+        # self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
+        self.learner = learner
         # store results
         metric_table = {}
         metric_table_local = {}

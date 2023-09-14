@@ -25,7 +25,7 @@ mkdir -p $OUTDIR
 #    arg 3 = g-prompt pool length (not necessary)
 python3 -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
     --learner_type prompt --learner_name ContrastivePrototypicalPrompt \
-    --prompt_param 10 20 -1 \
+    --prompt_param 10 1 -1 \
     --log_dir ${OUTDIR}/cpp
 
 ## CODA-P
