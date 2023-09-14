@@ -150,8 +150,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = dict()
         self.avg_variance = dict()
         self.MLP_neck = None
-
-        self._generate_mapping_class_to_task() # generate mapping from class_id to task_id, used for evaluation
+        self._num_anchor_per_class = 5
 
     def _create_criterion_fn(self):
         self.criterion_fn = ContrastivePrototypicalLoss(temperature=3, reduction="mean")
@@ -186,14 +185,14 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             last_features = torch.cat(list_last_feature, dim=0)
             outputs = torch.cat(list_output, dim=0)
-            cluster_algorithm = KMeans(num_classes=5)
+            cluster_algorithm = KMeans(num_classes=self._num_anchor_per_class)
             uni_output = sorted(torch.unique(outputs).tolist())
             for class_id in uni_output:
                 feature_set_for_class_id = last_features[outputs == class_id]
                 assert feature_set_for_class_id.ndim == 2, "feature_set_for_class_id.ndim != 2."
                 cluster_algorithm.fit(feature_set_for_class_id)
                 prototype = cluster_algorithm.get_centroids()
-                prototype_set[class_id] = prototype
+                prototype_set[class_id] = prototype # (_num_anchor_per_class, emb_d)
                 if use_prompt:
                     row_variances = torch.var(feature_set_for_class_id, dim=1)
                     self.avg_variance[class_id] = torch.mean(row_variances)
@@ -233,7 +232,9 @@ class ContrastivePrototypicalPrompt(Prompt):
             # retrieve all perturbed prototype set in a single tensor
             all_previous_value_prototype = list()
             for class_id, value_prototype_set in self.value_prototype.items():
-                all_previous_value_prototype.append(value_prototype_set.unsqueeze(0))
+                if value_prototype_set.ndim == 1:
+                    value_prototype_set = value_prototype_set.unsqueeze(0)
+                all_previous_value_prototype.append(value_prototype_set)
             all_previous_value_prototype = torch.cat(all_previous_value_prototype, dim=0)
             all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
             n_z_feature = nn.functional.normalize(z_feature, dim=1)
@@ -255,8 +256,10 @@ class ContrastivePrototypicalPrompt(Prompt):
             avg_var = list()
             for class_id, avg_var_for_each_class in self.avg_variance.items():
                 avg_var.append(avg_var_for_each_class) # avg_var_for_each_class is a number
-            avg_var = torch.tensor(avg_var).unsqueeze(-1).cuda()
-            assert avg_var.shape[0] == prototype.shape[0], "avg_var.shape[0] != prototype.shape[0]"
+            avg_var = torch.tensor(avg_var)
+            assert avg_var.shape[0] * self._num_anchor_per_class == prototype.shape[0]
+            # stretch avg_var to be the same size as prototype.shape[0]
+            avg_var = avg_var.expand(prototype.shape[0]).unsqueeze(-1).cuda()
             vect_dim = prototype.shape[1]
             num_instances = prototype.shape[0]
             mean = torch.zeros(vect_dim)
@@ -276,41 +279,43 @@ class ContrastivePrototypicalPrompt(Prompt):
             params_to_opt = list(self.model.prompt.parameters()) + list(self.MLP_neck.parameters())
         return params_to_opt
 
-    def _generate_mapping_class_to_task(self):
-        self.mapping_class_to_task = dict()
-        for task_id, class_id_list in enumerate(self.tasks):
-            for class_id in class_id_list:
-                self.mapping_class_to_task[class_id] = task_id
 
     def _evaluate(self, model, input, target, task, acc, task_in=None):
         with torch.no_grad():
+            top_k = self.model.prompt.top_k
             # retrieve prototype set in a tensor with ascending order wrt class_id
             class_id_so_far = sorted(self.key_prototype.keys())
-            print(f"class id so far: {class_id_so_far}")
+            assert self.valid_out_dim == len(class_id_so_far), "self.valid_out_dim != len(class_id_so_far)."
             U = list()
             U_hat = list()
-            for class_id in class_id_so_far:
-                U.append(self.key_prototype[class_id].unsqueeze(0))
-                U_hat.append(self.value_prototype[class_id].unsqueeze(0))
-            U = torch.cat(U, dim=0)
+
+            for class_id in range(self.valid_out_dim):
+                key = self.key_prototype[class_id].unsqueeze(0)
+                value = self.value_prototype[class_id].unsqueeze(0)
+                U.append(key)
+                U_hat.append(value)
+
+            U = torch.cat(U, dim=0) # (num_classes, num_anchors, emb_d)
             U_hat = torch.cat(U_hat, dim=0)
-            assert U.ndim == 2, "Wrong in shape U."
-            assert U_hat.ndim == 2, "Wrong in shape U_hat."
+            assert U.ndim == 3, "Wrong in shape U."
+            assert U_hat.ndim == 3, "Wrong in shape U_hat."
             x_query = self.model.retrieve_query_vector(input)
             B, C = x_query.shape
             # cosine similarity to match keys/queries
-            n_U = nn.functional.normalize(U, dim=1)
-            q = nn.functional.normalize(x_query, dim=1).detach()
-            cos_sim = torch.einsum('bj,kj->bk', q, n_U)
+            n_U = nn.functional.normalize(U, dim=2) # (num_classes, num_anchors, emb_d)
+            q = nn.functional.normalize(x_query, dim=1).detach() # (B, emb_d)
+            cos_sim = torch.einsum('kj,bij->kbi', q, n_U) # (B, num_classes, num_anchors)
+            flatten_cos_sim = cos_sim.reshape(B, -1) # (B, num_classes * num_anchors)
+            prototype_id_ranking = torch.topk(flatten_cos_sim, top_k, dim=1)
+            ranking = prototype_id_ranking.indices # shape == (B, self.top_k)
+            possible_task_id = torch.zeros_like(ranking)
 
-            top_k = torch.topk(cos_sim, self.model.prompt.top_k, dim=1)
-            class_idx = top_k.indices
-            possible_task_id = torch.zeros_like(class_idx)
-            for cid in range(U.shape[0]):
-                possible_task_id[class_idx == cid] = self.mapping_class_to_task[cid]
+            for class_id in range(self.valid_out_dim):
+                # [0, 5]
+                class_range = (class_id * self._num_anchor_per_class, (class_id + 1) * self._num_anchor_per_class)
+                torch.where(condition=(ranking >= class_range[0]) & (ranking < class_range[1]), input=class_id, other=0, out=possible_task_id)
 
             fine_grained_query = list()
-            top_k = self.model.prompt.top_k
             for top in range(top_k):
                 last_feature, _ = self.model(input, pen=True, train=False, use_prompt=True, possible_task_id=possible_task_id[:, top].view(-1, 1))
                 assert last_feature.shape == (B, self.model.prompt.emb_d), "Wrong in _evaluate method (1)."
@@ -318,11 +323,14 @@ class ContrastivePrototypicalPrompt(Prompt):
                 fine_grained_query.append(last_feature)
             fine_grained_query = torch.cat(fine_grained_query, dim=1)
 
-            n_U_hat = nn.functional.normalize(U_hat, dim=1)
-            n_fine_grained_query = nn.functional.normalize(fine_grained_query, dim=-1)
+            n_U_hat = nn.functional.normalize(U_hat, dim=2) # (num_classes, num_anchors, emb_d)
+            n_fine_grained_query = nn.functional.normalize(fine_grained_query, dim=-1) # (B, top_k, emb_d)
             assert n_fine_grained_query.shape == (B, top_k, self.model.prompt.emb_d), "Wrong in _evaluate method (2)."
 
-            likelihood_among_top_k_classes = torch.einsum('bij,kj->bki', n_fine_grained_query, n_U_hat)
+            # likelihood_among_top_k_classes.shape == (B, top_k, num_classes, num_anchors)
+            likelihood_among_top_k_classes = torch.einsum('bij,tkj->bitk', n_fine_grained_query, n_U_hat)
+            likelihood_among_top_k_classes = likelihood_among_top_k_classes.permute(0, 2, 1, 3)
+            likelihood_among_top_k_classes = likelihood_among_top_k_classes.reshape(B, self.valid_out_dim, -1)
             max_likelihood_among_k_classes = torch.max(likelihood_among_top_k_classes, dim=-1).values
             assert max_likelihood_among_k_classes.shape == (B, self.valid_out_dim), "Wrong in _evaluate method (3)."
 
