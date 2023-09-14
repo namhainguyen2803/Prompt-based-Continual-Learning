@@ -292,15 +292,15 @@ class ContrastivePrototypicalPrompt(Prompt):
             U_hat = torch.cat(U_hat, dim=0)
             assert U.ndim == 2, "Wrong in shape U."
             assert U_hat.ndim == 2, "Wrong in shape U_hat."
-            x_query = self.model.retrieve_query_vector(input) # query of input, shape == (B, self.emb_d)
+            x_query = self.model.retrieve_query_vector(input)
             B, C = x_query.shape
             # cosine similarity to match keys/queries
-            n_U = nn.functional.normalize(U, dim=1)  # shape == (number of classes, self.key_d)
-            q = nn.functional.normalize(x_query, dim=1).detach()  # shape == (B, self.emb_d)
+            n_U = nn.functional.normalize(U, dim=1)
+            q = nn.functional.normalize(x_query, dim=1).detach()
             cos_sim = torch.einsum('bj,kj->bk', q, n_U)
 
             top_k = torch.topk(cos_sim, self.model.prompt.top_k, dim=1)
-            class_idx = top_k.indices  # shape == (B, self.top_k)
+            class_idx = top_k.indices
             possible_task_id = torch.zeros_like(class_idx)
             for cid in range(U.shape[0]):
                 possible_task_id[class_idx == cid] = self.mapping_class_to_task[cid]
@@ -308,14 +308,13 @@ class ContrastivePrototypicalPrompt(Prompt):
             fine_grained_query = list()
             top_k = self.model.prompt.top_k
             for top in range(top_k):
-                # last_feature will have shape (B, self.emb_d)
                 last_feature, _ = self.model(input, pen=True, train=False, use_prompt=True, possible_task_id=possible_task_id[:, top].view(-1, 1))
                 assert last_feature.shape == (B, self.model.prompt.emb_d), "Wrong in _evaluate method (1)."
-                last_feature = last_feature.unsqueeze(1) # have shape (B, 1, self.emb_d)
+                last_feature = last_feature.unsqueeze(1)
                 fine_grained_query.append(last_feature)
-            fine_grained_query = torch.cat(fine_grained_query, dim=1) # have shape (B, self.top_k, self.emb_d)
+            fine_grained_query = torch.cat(fine_grained_query, dim=1)
 
-            n_U_hat = nn.functional.normalize(U_hat, dim=1)  # shape == (number of classes, self.emb_d)
+            n_U_hat = nn.functional.normalize(U_hat, dim=1)
             n_fine_grained_query = nn.functional.normalize(fine_grained_query, dim=-1)
             assert n_fine_grained_query.shape == (B, top_k, self.model.prompt.emb_d), "Wrong in _evaluate method (2)."
 
