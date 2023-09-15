@@ -150,7 +150,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = dict()
         self.avg_variance = dict()
         self.MLP_neck = None
-        self._num_anchor_per_class = 3
+        self._num_anchor_per_class = 1
         self._create_mapping_from_class_to_task()
         self.first_task = True
 
@@ -242,7 +242,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             batch_time = AverageMeter()
             batch_timer = Timer()
             all_previous_value_prototype = None
-            if self.first_task == False:
+            if not self.first_task:
                 # retrieve all perturbed prototype set in a single tensor
                 all_previous_value_prototype = list()
                 for class_id, value_prototype_set in self.value_prototype.items():
@@ -301,6 +301,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         if self.first_task == False:
             all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
         last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
+        print(last_feature)
         z_feature = self.MLP_neck(last_feature)
         n_z_feature = nn.functional.normalize(z_feature, dim=1)
         total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
@@ -414,21 +415,37 @@ class ContrastivePrototypicalPrompt(Prompt):
                     possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
 
             # print(possible_task_id)
-            fine_grained_query = list()
-            for top in range(top_k):
-                last_feature, _ = self.model(input, pen=True, train=False, use_prompt=True, possible_task_id=possible_task_id[:, top].view(-1, 1))
-                assert last_feature.shape == (B, self.model.prompt.emb_d), "Wrong in _evaluate method (1)."
-                last_feature = last_feature.unsqueeze(1)
-                fine_grained_query.append(last_feature)
-            fine_grained_query = torch.cat(fine_grained_query, dim=1)
+            flatten_possible_task_id = possible_task_id.reshape(-1, 1) # flatten, shape == (B * self.top_k, 1)
+            last_feature, _ = self.model(input, pen=True, train=False, use_prompt=True, possible_task_id=flatten_possible_task_id)
+            # last_feature.shape == (B * self.top_k, emb_d)
+            assert last_feature.shape == (B * top_k, self.model.prompt.emb_d), "last_feature.shape != (B * top_k, self.model.prompt.emb_d)."
+            fine_grained_query = last_feature.reshape(B, top_k, self.model.prompt.emb_d)
 
+            fine_grained_query_2 = list()
+            for top in range(top_k):
+                last_feature_2, _ = self.model(input, pen=True, train=False, use_prompt=True,
+                                             possible_task_id=possible_task_id[:, top].view(-1, 1))
+                assert last_feature_2.shape == (B, self.model.prompt.emb_d), "Wrong in _evaluate method (1)."
+                last_feature = last_feature.unsqueeze(1)
+                fine_grained_query_2.append(last_feature)
+            fine_grained_query_2 = torch.cat(fine_grained_query_2, dim=1)
+
+            print(f"Difference: {torch.sum(torch.abs(fine_grained_query - fine_grained_query_2))}")
             n_U_hat = nn.functional.normalize(U_hat, dim=2) # (num_classes, num_anchors, emb_d)
             n_fine_grained_query = nn.functional.normalize(fine_grained_query, dim=-1) # (B, top_k, emb_d)
             assert n_fine_grained_query.shape == (B, top_k, self.model.prompt.emb_d), "Wrong in _evaluate method (2)."
 
-            # likelihood_among_top_k_classes.shape == (B, top_k, num_classes, num_anchors)
-            likelihood_among_top_k_classes = torch.einsum('bij,tkj->bitk', n_fine_grained_query, n_U_hat)
-            likelihood_among_top_k_classes = likelihood_among_top_k_classes.permute(0, 2, 1, 3)
+            # likelihood_among_top_k_classes.shape == (B, num_classes, top_k, num_anchors)
+            likelihood_among_top_k_classes = torch.einsum('bij,tkj->btik', n_fine_grained_query, n_U_hat)
+            # X = torch.zeros(n_fine_grained_query.shape[0], n_U_hat.shape[0], n_fine_grained_query.shape[1], n_U_hat.shape[1])
+            # for b in range(n_fine_grained_query.shape[0]):
+            #     for i in range(n_fine_grained_query.shape[1]):
+            #         for t in range(n_U_hat.shape[0]):
+            #             for k in range(n_U_hat.shape[1]):
+            #                 for j in range(n_U_hat.shape[2]):
+            #                     X[b,i,t,k] += n_fine_grained_query[b,i,j] * n_U_hat[t,k,j]
+
+            # likelihood_among_top_k_classes = likelihood_among_top_k_classes.permute(0, 2, 1, 3)
             likelihood_among_top_k_classes = likelihood_among_top_k_classes.reshape(B, self.valid_out_dim, -1)
             max_likelihood_among_k_classes = torch.max(likelihood_among_top_k_classes, dim=-1).values
             assert max_likelihood_among_k_classes.shape == (B, self.valid_out_dim), "Wrong in _evaluate method (3)."
