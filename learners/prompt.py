@@ -150,7 +150,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = dict()
         self.avg_variance = dict()
         self.MLP_neck = None
-        self._num_anchor_per_class = 5
+        self._num_anchor_per_class = 1
 
     def _create_criterion_fn(self):
         self.criterion_fn = ContrastivePrototypicalLoss(temperature=3, reduction="mean")
@@ -234,10 +234,13 @@ class ContrastivePrototypicalPrompt(Prompt):
             for class_id, value_prototype_set in self.value_prototype.items():
                 if value_prototype_set.ndim == 1:
                     value_prototype_set = value_prototype_set.unsqueeze(0)
+                assert value_prototype_set.ndim == 2, "all_previous_value_prototype.ndim != 2."
                 all_previous_value_prototype.append(value_prototype_set)
             all_previous_value_prototype = torch.cat(all_previous_value_prototype, dim=0)
+            assert all_previous_value_prototype.ndim == 2, "all_previous_value_prototype.ndim != 2."
             all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
             n_z_feature = nn.functional.normalize(z_feature, dim=1)
+            all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
             total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
                                                  previous_prototype=all_previous_value_prototype)
         else:
