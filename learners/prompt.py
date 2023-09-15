@@ -152,6 +152,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.MLP_neck = None
         self._num_anchor_per_class = 1
         self._create_mapping_from_class_to_task()
+        self.first_task = True
 
     def _create_criterion_fn(self):
         self.criterion_fn = ContrastivePrototypicalLoss(temperature=3, reduction="mean")
@@ -240,7 +241,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             batch_time = AverageMeter()
             batch_timer = Timer()
             all_previous_value_prototype = None
-            if self.first_task:
+            if self.first_task == False:
                 # retrieve all perturbed prototype set in a single tensor
                 all_previous_value_prototype = list()
                 for class_id, value_prototype_set in self.value_prototype.items():
@@ -296,7 +297,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def update_model(self, inputs, targets, all_previous_value_prototype=None):
         # logits
-        if self.first_task:
+        if self.first_task == False:
             all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
         last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
         z_feature = self.MLP_neck(last_feature)
