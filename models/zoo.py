@@ -463,6 +463,8 @@ class ViTZoo(nn.Module):
             q = q[:, 0, :]
             return q
 
+
+
     # pen: get penultimate(final) features
     def forward(self, x, pen=False, train=False, use_prompt=True, possible_task_id=None):
         prompt_loss = 0

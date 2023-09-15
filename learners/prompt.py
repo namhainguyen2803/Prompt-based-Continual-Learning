@@ -150,7 +150,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = dict()
         self.avg_variance = dict()
         self.MLP_neck = None
-        self._num_anchor_per_class = 1
+        self._num_anchor_per_class = 3
         self._create_mapping_from_class_to_task()
         self.first_task = True
 
@@ -196,9 +196,10 @@ class ContrastivePrototypicalPrompt(Prompt):
                 prototype = cluster_algorithm.get_centroids()
                 prototype_set[class_id] = prototype # (_num_anchor_per_class, emb_d)
                 if use_prompt:
-                    row_variances = torch.var(feature_set_for_class_id, dim=1)
-                    self.avg_variance[class_id] = torch.mean(row_variances)
-                    print(self.avg_variance[class_id])
+                    # row_variances = torch.var(feature_set_for_class_id, dim=1)
+                    # self.avg_variance[class_id] = torch.mean(row_variances)
+                    # print(self.avg_variance[class_id])
+                    self.avg_variance[class_id] = torch.tensor(1.0)
             return prototype_set
 
     def _update_key_prototype(self, train_loader):
@@ -386,7 +387,6 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def _create_mapping_from_class_to_task(self):
         self.mapping_class_to_task = dict()
-        cnt = 0
         for task_id, class_range in enumerate(self.tasks):
             for class_id in class_range:
                 self.mapping_class_to_task[class_id] = task_id
@@ -405,7 +405,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             prototype_id_ranking = torch.topk(flatten_cos_sim, top_k, dim=1)
             ranking = prototype_id_ranking.indices # shape == (B, self.top_k)
             possible_task_id = torch.zeros_like(ranking)
-            print(ranking)
+            # print(ranking)
 
             for class_id in range(self.valid_out_dim):
                 # [0, 5]
@@ -413,7 +413,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                 for c in range(class_range[0], class_range[1]):
                     possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
 
-            print(possible_task_id)
+            # print(possible_task_id)
             fine_grained_query = list()
             for top in range(top_k):
                 last_feature, _ = self.model(input, pen=True, train=False, use_prompt=True, possible_task_id=possible_task_id[:, top].view(-1, 1))
