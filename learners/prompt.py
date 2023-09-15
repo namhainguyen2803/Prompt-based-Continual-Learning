@@ -316,11 +316,14 @@ class ContrastivePrototypicalPrompt(Prompt):
             for class_id in range(self.valid_out_dim):
                 # [0, 5]
                 class_range = (class_id * self._num_anchor_per_class, (class_id + 1) * self._num_anchor_per_class)
-                print(f"class_id: {class_id}, {class_range}")
-                torch.where(condition=(ranking >= class_range[0]) & (ranking < class_range[1]),
-                            input=torch.tensor(class_id, dtype=torch.float32),
-                            other=torch.tensor(0, dtype=torch.float32),
-                            out=possible_task_id)
+                for c in range(class_range[0], class_range[1]):
+                    possible_task_id[ranking == c] = class_id
+
+                # torch.where(condition=(ranking >= class_range[0]) & (ranking < class_range[1]),
+                #             input=torch.tensor(class_id, dtype=torch.float32),
+                #             other=torch.tensor(0, dtype=torch.float32),
+                #             out=possible_task_id)
+
             print(possible_task_id)
             fine_grained_query = list()
             for top in range(top_k):
