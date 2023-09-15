@@ -312,7 +312,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             prototype_id_ranking = torch.topk(flatten_cos_sim, top_k, dim=1)
             ranking = prototype_id_ranking.indices # shape == (B, self.top_k)
             possible_task_id = torch.zeros_like(ranking)
-
+            print(ranking)
             for class_id in range(self.valid_out_dim):
                 # [0, 5]
                 class_range = (class_id * self._num_anchor_per_class, (class_id + 1) * self._num_anchor_per_class)
@@ -321,10 +321,9 @@ class ContrastivePrototypicalPrompt(Prompt):
                             input=torch.tensor(class_id, dtype=torch.float32),
                             other=torch.tensor(0, dtype=torch.float32),
                             out=possible_task_id)
-
+            print(possible_task_id)
             fine_grained_query = list()
             for top in range(top_k):
-                print(possible_task_id[:, top].view(-1, 1))
                 last_feature, _ = self.model(input, pen=True, train=False, use_prompt=True, possible_task_id=possible_task_id[:, top].view(-1, 1))
                 assert last_feature.shape == (B, self.model.prompt.emb_d), "Wrong in _evaluate method (1)."
                 last_feature = last_feature.unsqueeze(1)
