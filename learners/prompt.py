@@ -151,6 +151,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.avg_variance = dict()
         self.MLP_neck = None
         self._num_anchor_per_class = 1
+        self._create_mapping_from_class_to_task()
 
     def _create_criterion_fn(self):
         self.criterion_fn = ContrastivePrototypicalLoss(temperature=3, reduction="mean")
@@ -196,6 +197,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                 if use_prompt:
                     row_variances = torch.var(feature_set_for_class_id, dim=1)
                     self.avg_variance[class_id] = torch.mean(row_variances)
+                    print(self.avg_variance[class_id])
             return prototype_set
 
     def _update_key_prototype(self, train_loader):
@@ -213,46 +215,100 @@ class ContrastivePrototypicalPrompt(Prompt):
         print("Reset MLP neck.")
         # learn prompt
         print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
-        super().learn_batch(train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True, need_acc=False)
+        self._learn_batch(train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True)
         print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
         print("##### Attempt to update value prototype set. #####")
         self._update_value_prototype(train_loader)
         print("##### Finish updating value prototype set. #####")
 
-    def update_model(self, inputs, targets):
-        """
-        Modify update_model method because CPP has different loss function compared to L2P or DualPrompt.
-        Specifically, it uses Contrastive Loss Function as criterion
-        """
-        # logits
-        last_feature, logits, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
-        z_feature = self.MLP_neck(last_feature)
+    def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True):
+        # try to load model
+        need_train = True
+        if not self.overwrite:
+            try:
+                self.load_model(model_save_dir)
+                need_train = False
+            except:
+                print("Cannot load model")
+        # trains
+        if self.reset_optimizer:  # Reset optimizer before learning each task
+            self.log('Optimizer is reset!')
+            self.init_optimizer()
+        if need_train:
+            if need_loss:
+                losses = AverageMeter()
+            batch_time = AverageMeter()
+            batch_timer = Timer()
+            all_previous_value_prototype = None
+            if self.first_task:
+                # retrieve all perturbed prototype set in a single tensor
+                all_previous_value_prototype = list()
+                for class_id, value_prototype_set in self.value_prototype.items():
+                    if value_prototype_set.ndim == 1:
+                        value_prototype_set = value_prototype_set.unsqueeze(0)
+                    assert value_prototype_set.ndim == 2, "all_previous_value_prototype.ndim != 2."
+                    all_previous_value_prototype.append(value_prototype_set)
+                all_previous_value_prototype = torch.cat(all_previous_value_prototype, dim=0)
+                assert all_previous_value_prototype.ndim == 2, "all_previous_value_prototype.ndim != 2."
+                all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
 
-        if self.task_count > 0:
-            # retrieve all perturbed prototype set in a single tensor
-            all_previous_value_prototype = list()
-            for class_id, value_prototype_set in self.value_prototype.items():
-                if value_prototype_set.ndim == 1:
-                    value_prototype_set = value_prototype_set.unsqueeze(0)
-                assert value_prototype_set.ndim == 2, "all_previous_value_prototype.ndim != 2."
-                all_previous_value_prototype.append(value_prototype_set)
-            all_previous_value_prototype = torch.cat(all_previous_value_prototype, dim=0)
-            assert all_previous_value_prototype.ndim == 2, "all_previous_value_prototype.ndim != 2."
+            for epoch in range(self.config['schedule'][-1]):
+                self.epoch = epoch
+                # if epoch > 0:
+                #     self.scheduler.step()
+                for param_group in self.optimizer.param_groups:
+                    self.log('LR:', param_group['lr'])
+                batch_timer.tic()
+                for i, (x, y, task) in enumerate(train_loader):
+                    # verify in train mode
+                    self.model.train()
+                    # send data to gpu
+                    if self.gpu:
+                        x = x.cuda()
+                        y = y.cuda()
+                    # model update
+                    loss = self.update_model(x, y, all_previous_value_prototype)
+                    # measure elapsed time
+                    batch_time.update(batch_timer.toc())
+                    batch_timer.tic()
+                    # measure accuracy and record loss
+                    y = y.detach()
+                    if need_loss:
+                        losses.update(loss, y.size(0))
+                    batch_timer.tic()
+                # eval update
+                self.log(
+                    'Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=self.epoch + 1, total=self.config['schedule'][-1]))
+                if need_loss:
+                    self.log(' * Loss {loss.avg:.3f} |'.format(loss=losses))
+                    losses = AverageMeter()
+        self.model.eval()
+        self.last_valid_out_dim = self.valid_out_dim
+        self.first_task = False
+        # Extend memory
+        self.task_count += 1
+        if self.memory_size > 0:
+            train_dataset.update_coreset(self.memory_size, np.arange(self.last_valid_out_dim))
+        try:
+            return batch_time.avg
+        except:
+            return None
+
+    def update_model(self, inputs, targets, all_previous_value_prototype=None):
+        # logits
+        if self.first_task:
             all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
-            n_z_feature = nn.functional.normalize(z_feature, dim=1)
-            all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
-            total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
-                                                 previous_prototype=all_previous_value_prototype)
-        else:
-            n_z_feature = nn.functional.normalize(z_feature, dim=1)
-            total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
-                                                 previous_prototype=None)
+        last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
+        z_feature = self.MLP_neck(last_feature)
+        n_z_feature = nn.functional.normalize(z_feature, dim=1)
+        total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
+                                       previous_prototype=all_previous_value_prototype)
         # step
         self.optimizer.zero_grad()
         total_loss.backward()
         self.optimizer.step()
 
-        return total_loss.detach(), logits
+        return total_loss.detach()
 
     def _perturb_key_prototype(self, prototype):
         with torch.no_grad():
@@ -282,27 +338,63 @@ class ContrastivePrototypicalPrompt(Prompt):
             params_to_opt = list(self.model.prompt.parameters()) + list(self.MLP_neck.parameters())
         return params_to_opt
 
-
-    def _evaluate(self, model, input, target, task, acc, task_in=None):
+    def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True):
         with torch.no_grad():
-            top_k = self.model.prompt.top_k
-            # retrieve prototype set in a tensor with ascending order wrt class_id
-            class_id_so_far = sorted(self.key_prototype.keys())
-            assert self.valid_out_dim == len(class_id_so_far), "self.valid_out_dim != len(class_id_so_far)."
+            if model is None:
+                model = self.model
+            # This function doesn't distinguish tasks.
+            batch_timer = Timer()
+            acc = AverageMeter()
+            batch_timer.tic()
+            orig_mode = model.training
+            model.eval()
+
             U = list()
             U_hat = list()
-
             for class_id in range(self.valid_out_dim):
                 key = self.key_prototype[class_id].unsqueeze(0)
                 value = self.value_prototype[class_id].unsqueeze(0)
                 U.append(key)
                 U_hat.append(value)
-
             U = torch.cat(U, dim=0) # (num_classes, num_anchors, emb_d)
             U_hat = torch.cat(U_hat, dim=0)
             assert U.ndim == 3, "Wrong in shape U."
             assert U_hat.ndim == 3, "Wrong in shape U_hat."
-            x_query = self.model.retrieve_query_vector(input)
+
+            for i, (input, target, task) in enumerate(dataloader):
+                if self.gpu:
+                    with torch.no_grad():
+                        input = input.cuda()
+                        target = target.cuda()
+                if task_in is None:
+                    acc = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input, target=target, task=task, acc=acc, task_in=None)
+                else:
+                    mask = target >= task_in[0]
+                    mask_ind = mask.nonzero().view(-1)
+                    input, target = input[mask_ind], target[mask_ind]
+                    mask = target < task_in[-1]
+                    mask_ind = mask.nonzero().view(-1)
+                    input, target = input[mask_ind], target[mask_ind]
+                    acc = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input, target=target, task=task, acc=acc, task_in=task_in)
+
+        model.train(orig_mode)
+        if verbal:
+            self.log(' * Val Acc {acc.avg:.3f}, Total time {time:.2f}'
+                     .format(acc=acc, time=batch_timer.toc()))
+        return acc.avg
+
+    def _create_mapping_from_class_to_task(self):
+        self.mapping_class_to_task = dict()
+        cnt = 0
+        for task_id, class_range in enumerate(self.tasks):
+            for class_id in class_range:
+                self.mapping_class_to_task[class_id] = task_id
+
+    def _evaluate_CPP(self,U, U_hat, model, input, target, task, acc, task_in=None):
+        with torch.no_grad():
+            top_k = model.prompt.top_k
+            # retrieve prototype set in a tensor with ascending order wrt class_id
+            x_query = model.retrieve_query_vector(input)
             B, C = x_query.shape
             # cosine similarity to match keys/queries
             n_U = nn.functional.normalize(U, dim=2) # (num_classes, num_anchors, emb_d)
@@ -313,16 +405,12 @@ class ContrastivePrototypicalPrompt(Prompt):
             ranking = prototype_id_ranking.indices # shape == (B, self.top_k)
             possible_task_id = torch.zeros_like(ranking)
             print(ranking)
+
             for class_id in range(self.valid_out_dim):
                 # [0, 5]
                 class_range = (class_id * self._num_anchor_per_class, (class_id + 1) * self._num_anchor_per_class)
                 for c in range(class_range[0], class_range[1]):
-                    possible_task_id[ranking == c] = class_id
-
-                # torch.where(condition=(ranking >= class_range[0]) & (ranking < class_range[1]),
-                #             input=torch.tensor(class_id, dtype=torch.float32),
-                #             other=torch.tensor(0, dtype=torch.float32),
-                #             out=possible_task_id)
+                    possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
 
             print(possible_task_id)
             fine_grained_query = list()
