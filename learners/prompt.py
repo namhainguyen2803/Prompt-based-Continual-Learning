@@ -416,8 +416,11 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             # print(possible_task_id)
             flatten_possible_task_id = possible_task_id.reshape(-1, 1) # flatten, shape == (B * self.top_k, 1)
-            last_feature, _ = self.model(input, pen=True, train=False, use_prompt=True, possible_task_id=flatten_possible_task_id)
+            input_repeat = input.repeat(top_k)
+            print(f"shape of input: {input_repeat}")
+            last_feature, _ = self.model(input_repeat, pen=True, train=False, use_prompt=True, possible_task_id=flatten_possible_task_id)
             # last_feature.shape == (B * self.top_k, emb_d)
+            print(f"shape of last_feature: {last_feature}")
             assert last_feature.shape == (B * top_k, self.model.prompt.emb_d), "last_feature.shape != (B * top_k, self.model.prompt.emb_d)."
             fine_grained_query = last_feature.reshape(B, top_k, self.model.prompt.emb_d)
 
