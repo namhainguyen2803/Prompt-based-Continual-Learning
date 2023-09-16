@@ -392,7 +392,7 @@ class ContrastivePrototypicalPrompt(DualPrompt):
                 # no need cos-sim loss
                 P_ = p[task_id].expand(B, -1, -1)
             else:  # CPP in testing time, but differs than that of DualPrompt!
-                # assert possible_task_id.shape == (B, 1), "Wrong in class ContrastivePrototypicalPrompt(DualPrompt)."
+                assert possible_task_id.shape == (B, 1), "Wrong in class ContrastivePrototypicalPrompt(DualPrompt)."
                 P_ = p[possible_task_id]
                 P_ = P_.squeeze(1)
 
