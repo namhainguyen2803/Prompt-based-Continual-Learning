@@ -301,7 +301,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         if self.first_task == False:
             all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
         last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
-        print(last_feature)
+        # print(last_feature)
         z_feature = self.MLP_neck(last_feature)
         n_z_feature = nn.functional.normalize(z_feature, dim=1)
         total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
