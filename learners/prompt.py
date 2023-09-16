@@ -298,14 +298,14 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def update_model(self, inputs, targets, all_previous_value_prototype=None):
         # logits
-        # if self.first_task == False:
-        #     all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
+        if self.first_task == False:
+            # all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
+            all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
         last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
 
         print(last_feature)
         z_feature = self.MLP_neck(last_feature)
         n_z_feature = nn.functional.normalize(z_feature, dim=1)
-        all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
         total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
                                        previous_prototype=all_previous_value_prototype)
         # step
