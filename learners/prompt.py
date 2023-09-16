@@ -428,7 +428,6 @@ class ContrastivePrototypicalPrompt(Prompt):
             # last_feature.shape == (B * self.top_k, emb_d)
             print(f"shape of last_feature: {last_feature.shape}")
             assert last_feature.shape == (B * top_k, self.model.prompt.emb_d), "last_feature.shape != (B * top_k, self.model.prompt.emb_d)."
-            fine_grained_query_3 = last_feature.reshape(top_k, B, self.model.prompt.emb_d).permute(1, 0, 2)
             fine_grained_query = last_feature.reshape(B, top_k, self.model.prompt.emb_d)
 
 
@@ -440,7 +439,9 @@ class ContrastivePrototypicalPrompt(Prompt):
                 last_feature_2 = last_feature_2.unsqueeze(1)
                 fine_grained_query_2.append(last_feature_2)
             fine_grained_query_2 = torch.cat(fine_grained_query_2, dim=1)
-            print(f"Difference: {torch.sum(torch.abs(fine_grained_query - fine_grained_query_2))}")
+            print(f"Summed difference: {torch.sum(torch.abs(fine_grained_query - fine_grained_query_2))}")
+            print(f"Average difference: {torch.mean(torch.abs(fine_grained_query - fine_grained_query_2))}")
+            print(f"Max difference: {torch.max(torch.abs(fine_grained_query - fine_grained_query_2))}")
 
 
             n_U_hat = nn.functional.normalize(U_hat, dim=2) # (num_classes, num_anchors, emb_d)
