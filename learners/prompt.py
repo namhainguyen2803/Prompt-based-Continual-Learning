@@ -416,11 +416,12 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             # print(possible_task_id)
             flatten_possible_task_id = possible_task_id.reshape(-1, 1) # flatten, shape == (B * self.top_k, 1)
+            print(f"shape of input: {input.shape}")
             input_repeat = input.repeat(top_k, 1, 1, 1)
-            print(f"shape of input: {input_repeat}")
+            print(f"shape of input_repeat: {input_repeat.shape}")
             last_feature, _ = self.model(input_repeat, pen=True, train=False, use_prompt=True, possible_task_id=flatten_possible_task_id)
             # last_feature.shape == (B * self.top_k, emb_d)
-            print(f"shape of last_feature: {last_feature}")
+            print(f"shape of last_feature: {last_feature.shape}")
             assert last_feature.shape == (B * top_k, self.model.prompt.emb_d), "last_feature.shape != (B * top_k, self.model.prompt.emb_d)."
             fine_grained_query = last_feature.reshape(B, top_k, self.model.prompt.emb_d)
 
@@ -429,8 +430,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                 last_feature_2, _ = self.model(input, pen=True, train=False, use_prompt=True,
                                              possible_task_id=possible_task_id[:, top].view(-1, 1))
                 assert last_feature_2.shape == (B, self.model.prompt.emb_d), "Wrong in _evaluate method (1)."
-                last_feature = last_feature.unsqueeze(1)
-                fine_grained_query_2.append(last_feature)
+                last_feature_2 = last_feature_2.unsqueeze(1)
+                fine_grained_query_2.append(last_feature_2)
             fine_grained_query_2 = torch.cat(fine_grained_query_2, dim=1)
 
             print(f"Difference: {torch.sum(torch.abs(fine_grained_query - fine_grained_query_2))}")
