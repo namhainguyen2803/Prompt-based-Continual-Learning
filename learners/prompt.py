@@ -343,9 +343,9 @@ class ContrastivePrototypicalPrompt(Prompt):
             for class_id, avg_var_for_each_class in self.avg_variance.items():
                 avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
             avg_var = torch.tensor(avg_var)
-            assert avg_var.shape[0] * self._num_anchor_value_per_class == prototype.shape[0]
+            assert avg_var.shape[0] * self._num_anchor_value_prototype_per_class == prototype.shape[0]
             # stretch avg_var to be the same size as prototype.shape[0]
-            avg_var = avg_var.repeat(self._num_anchor_value_per_class).unsqueeze(-1).cuda()
+            avg_var = avg_var.repeat(self._num_anchor_value_prototype_per_class).unsqueeze(-1).cuda()
             mean = torch.zeros(vect_dim)
             covariance = torch.eye(vect_dim)
             gaussian_noise = torch.distributions.MultivariateNormal(mean, covariance).sample([num_instances]).cuda()
@@ -444,18 +444,18 @@ class ContrastivePrototypicalPrompt(Prompt):
             print(f"In task {ground_truth_task}, "
                   f"number of correct task: {num_correct_task} in {torch.numel(possible_task_id)} elements")
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
-            print(f"shape of input: {input.shape}")
+            # print(f"shape of input: {input.shape}")
 
             inp = input.unsqueeze(0)
             input_repeat = inp.repeat(top_k, 1, 1, 1, 1)
             input_repeat = input_repeat.permute(1, 0, 2, 3, 4)
             input_repeat = input_repeat.reshape(-1, input_repeat.shape[2], input_repeat.shape[3], input_repeat.shape[4])
 
-            print(f"shape of input_repeat: {input_repeat.shape}")
+            # print(f"shape of input_repeat: {input_repeat.shape}")
             last_feature, _ = self.model(input_repeat, pen=True, train=False, use_prompt=True,
                                          possible_task_id=flatten_possible_task_id)
             # last_feature.shape == (B * self.top_k, emb_d)
-            print(f"shape of last_feature: {last_feature.shape}")
+            # print(f"shape of last_feature: {last_feature.shape}")
             assert last_feature.shape == (B * top_k, self.model.prompt.emb_d), \
                 "last_feature.shape != (B * top_k, self.model.prompt.emb_d)."
             fine_grained_query = last_feature.reshape(B, top_k, self.model.prompt.emb_d)
