@@ -160,7 +160,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = dict()
         self.avg_variance = dict()
         self.MLP_neck = None
-        self._num_anchor_per_class = 3
+        self._num_anchor_per_class = 5
         self._create_mapping_from_class_to_task()
         self.first_task = True
 
@@ -269,8 +269,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                     all_previous_value_prototype.append(value_prototype_set)
                 all_previous_value_prototype = torch.cat(all_previous_value_prototype, dim=0)
                 assert all_previous_value_prototype.ndim == 2, "all_previous_value_prototype.ndim != 2."
-                all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
-                print(f"Check value_prototype requires grad: {all_previous_value_prototype.requires_grad}")
+                # all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
+                print(f"Check value_prototype, having shape: {all_previous_value_prototype.shape}, requires grad: {all_previous_value_prototype.requires_grad}")
             for epoch in range(self.config['schedule'][-1]):
                 self.epoch = epoch
                 # if epoch > 0:
@@ -316,9 +316,9 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def update_model(self, inputs, targets, all_previous_value_prototype=None):
         # logits
-        # if self.first_task == False:
-        # all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
-        # all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
+        if self.first_task == False:
+            all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
+            all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
         last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
 
         # print(last_feature)
@@ -439,7 +439,8 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             # print(possible_task_id)
             num_correct_task = torch.sum(possible_task_id == ground_truth_task)
-            print(f"Number of correct task: {num_correct_task} in {torch.numel(possible_task_id)} elements")
+            print(f"In task {ground_truth_task}, "
+                  f"number of correct task: {num_correct_task} in {torch.numel(possible_task_id)} elements")
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
             print(f"shape of input: {input.shape}")
 
