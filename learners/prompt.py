@@ -385,14 +385,16 @@ class ContrastivePrototypicalPrompt(Prompt):
             assert U.ndim == 3, "Wrong in shape U."
             assert U_hat.ndim == 3, "Wrong in shape U_hat."
             print(f"Shape of U: {U.shape}, Shape of U_hat: {U_hat.shape}")
+            total_correct = 0
+            total_element = 0
             for i, (input, target, task) in enumerate(dataloader):
                 if self.gpu:
                     with torch.no_grad():
                         input = input.cuda()
                         target = target.cuda()
                 if task_in is None:
-                    acc = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input, target=target, task=task,
-                                             acc=acc, task_in=None)
+                    acc, correct_task, num_element = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input,
+                                                                        target=target, task=task, acc=acc, task_in=None)
                 else:
                     mask = target >= task_in[0]
                     mask_ind = mask.nonzero().view(-1)
@@ -400,11 +402,15 @@ class ContrastivePrototypicalPrompt(Prompt):
                     mask = target < task_in[-1]
                     mask_ind = mask.nonzero().view(-1)
                     input, target = input[mask_ind], target[mask_ind]
-                    acc = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input, target=target, task=task,
-                                             acc=acc, task_in=task_in)
-
+                    acc, correct_task, num_element = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input,
+                                                                        target=target, task=task, acc=acc, task_in=task_in)
+                total_correct += correct_task
+                total_element += num_element
         model.train(orig_mode)
         if verbal:
+            ground_truth_task = torch.unique(task).cuda()
+            self.log(f"In task {ground_truth_task}, "
+                  f"number of correct task: {total_correct} in {total_element} elements")
             self.log(' * Val Acc {acc.avg:.3f}, Total time {time:.2f}'
                      .format(acc=acc, time=batch_timer.toc()))
         return acc.avg
@@ -440,9 +446,10 @@ class ContrastivePrototypicalPrompt(Prompt):
                     possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
 
             # print(possible_task_id)
-            num_correct_task = torch.sum(possible_task_id == ground_truth_task)
-            print(f"In task {ground_truth_task}, "
-                  f"number of correct task: {num_correct_task} in {torch.numel(possible_task_id)} elements")
+            num_element_correct_task = torch.sum(possible_task_id == ground_truth_task)
+            total_element = torch.numel(possible_task_id)
+            # print(f"In task {ground_truth_task}, "
+            #       f"number of correct task: {num_element_correct_task} in {total_element} elements")
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
             # print(f"shape of input: {input.shape}")
 
@@ -476,4 +483,4 @@ class ContrastivePrototypicalPrompt(Prompt):
             else:
                 output = max_likelihood_among_k_classes[:, task_in]
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
-            return acc
+            return acc, num_element_correct_task, total_element
