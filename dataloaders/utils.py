@@ -36,6 +36,14 @@ def get_transform(dataset='cifar100', phase='test', aug=True, resize_imnet=False
     dset_mean = (0.0,0.0,0.0) # dataset_stats[dataset]['mean']
     dset_std = (1.0,1.0,1.0) # dataset_stats[dataset]['std']
 
+    # if dataset == "CIFAR100":
+    #     transform_list.extend([
+    #         transforms.RandomResizedCrop(size=224,scale=(0.8,1.0)),
+    #         transforms.RandomHorizontalFlip(p=0.5),
+    #         # transforms.RandomC
+    #     ])
+    # else:
+
     if dataset == 'ImageNet32' or dataset == 'ImageNet84':
         transform_list.extend([
             transforms.Resize((crop_size,crop_size))

@@ -336,6 +336,7 @@ class ContrastivePrototypicalPrompt(Prompt):
     def _calculate_validation_loss(self, train_loader, all_previous_value_prototype):
         with torch.no_grad():
             total_loss = 0
+            total_element = 0
             for i, (x, y, task) in enumerate(train_loader):
                 # verify in train mode
                 self.model.train()
@@ -343,9 +344,18 @@ class ContrastivePrototypicalPrompt(Prompt):
                 if self.gpu:
                     x = x.cuda()
                     y = y.cuda()
-                loss = self.update_model(x, y, all_previous_value_prototype)
-                total_loss += loss
-            return total_loss
+                if not self.first_task:
+                    # all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype)
+                    all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
+                last_feature, _, prompt_loss = self.model(x, pen=True, train=True, use_prompt=True)
+
+                z_feature = self.MLP_neck(last_feature)
+                n_z_feature = nn.functional.normalize(z_feature, dim=1)
+                loss = self.criterion_fn(z_feature=n_z_feature, label=y,
+                                               previous_prototype=all_previous_value_prototype)
+                total_loss += loss.detach()
+                total_element = x.shape[0]
+            return total_loss / total_element
 
     def update_model(self, inputs, targets, all_previous_value_prototype=None):
         # logits
