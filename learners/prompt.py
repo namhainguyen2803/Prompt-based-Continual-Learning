@@ -270,7 +270,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                 all_previous_value_prototype = torch.cat(all_previous_value_prototype, dim=0)
                 assert all_previous_value_prototype.ndim == 2, "all_previous_value_prototype.ndim != 2."
                 all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
-
+                print(f"Check value_prototype requires grad: {all_previous_value_prototype.requires_grad}")
             for epoch in range(self.config['schedule'][-1]):
                 self.epoch = epoch
                 # if epoch > 0:
@@ -416,6 +416,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def _evaluate_CPP(self, U, U_hat, model, input, target, task, acc, task_in=None):
         with torch.no_grad():
+            ground_truth_task = torch.unique(task)
             top_k = model.prompt.top_k
             # retrieve prototype set in a tensor with ascending order wrt class_id
             x_query = model.retrieve_query_vector(input)
@@ -428,7 +429,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             prototype_id_ranking = torch.topk(flatten_cos_sim, top_k, dim=1)
             ranking = prototype_id_ranking.indices  # shape == (B, self.top_k)
             possible_task_id = torch.zeros_like(ranking)
-            print(ranking)
+            # print(ranking)
 
             for class_id in range(self.valid_out_dim):
                 # [0, 5]
@@ -436,7 +437,9 @@ class ContrastivePrototypicalPrompt(Prompt):
                 for c in range(class_range[0], class_range[1]):
                     possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
 
-            print(possible_task_id)
+            # print(possible_task_id)
+            num_correct_task = torch.sum(possible_task_id == ground_truth_task)
+            print(f"Number of correct task: {num_correct_task} in {torch.numel(possible_task_id)} elements")
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
             print(f"shape of input: {input.shape}")
 
