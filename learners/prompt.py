@@ -271,7 +271,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                 all_previous_value_prototype = torch.cat(all_previous_value_prototype, dim=0)
                 assert all_previous_value_prototype.ndim == 2, "all_previous_value_prototype.ndim != 2."
                 # all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
-                print(f"Check value_prototype, having shape: {all_previous_value_prototype.shape}, requires grad: {all_previous_value_prototype.requires_grad}")
+                print(f"Check value_prototype, having shape: {all_previous_value_prototype.shape}, "
+                      f"requires grad: {all_previous_value_prototype.requires_grad}")
             for epoch in range(self.config['schedule'][-1]):
                 self.epoch = epoch
                 # if epoch > 0:
@@ -342,9 +343,9 @@ class ContrastivePrototypicalPrompt(Prompt):
             for class_id, avg_var_for_each_class in self.avg_variance.items():
                 avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
             avg_var = torch.tensor(avg_var)
-            assert avg_var.shape[0] * self._num_anchor_per_class == prototype.shape[0]
+            assert avg_var.shape[0] * self._num_anchor_value_per_class == prototype.shape[0]
             # stretch avg_var to be the same size as prototype.shape[0]
-            avg_var = avg_var.repeat(self._num_anchor_per_class).unsqueeze(-1).cuda()
+            avg_var = avg_var.repeat(self._num_anchor_value_per_class).unsqueeze(-1).cuda()
             mean = torch.zeros(vect_dim)
             covariance = torch.eye(vect_dim)
             gaussian_noise = torch.distributions.MultivariateNormal(mean, covariance).sample([num_instances]).cuda()
@@ -372,7 +373,6 @@ class ContrastivePrototypicalPrompt(Prompt):
             batch_timer.tic()
             orig_mode = model.training
             model.eval()
-
             U = list()
             U_hat = list()
             for class_id in range(self.valid_out_dim):
@@ -434,7 +434,8 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             for class_id in range(self.valid_out_dim):
                 # [0, 5]
-                class_range = (class_id * self._num_anchor_per_class, (class_id + 1) * self._num_anchor_per_class)
+                class_range = (class_id * self._num_anchor_key_prototype_per_class,
+                               (class_id + 1) * self._num_anchor_key_prototype_per_class)
                 for c in range(class_range[0], class_range[1]):
                     possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
 
