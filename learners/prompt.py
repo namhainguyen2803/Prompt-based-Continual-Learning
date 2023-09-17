@@ -485,8 +485,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                     possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
 
             # print(possible_task_id)
-            diff = possible_task_id - task.unsqueeze(1)
-            same = torch.zeros_like(diff)
+            diff = possible_task_id - task.unsqueeze(1).cuda()
+            same = torch.zeros_like(diff).cuda()
             same[diff == 0] = 1
             same[diff != 0] = 0
             same = torch.sum(same, dim=1)
