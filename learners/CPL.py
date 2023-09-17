@@ -49,9 +49,9 @@ class ContrastivePrototypicalLoss(nn.Module):
         assert max_z_dot_z_T.shape == (batch_size, 1), "max_z_dot_z_T.shape != (batch_size, 1)."
         z_dot_z_T = z_dot_z_T - max_z_dot_z_T.detach()
         loss_for_each_instance = (-1 / torch.sum(mask_for_same_classes, dim=1, keepdim=True)).reshape(-1, 1) * \
-                                 torch.sum(z_dot_z_T * mask_for_same_classes, dim=1, keepdim=True) - \
+                                 (torch.sum(z_dot_z_T * mask_for_same_classes, dim=1, keepdim=True) - \
                                  torch.log(torch.sum(torch.exp(z_dot_z_T * mask_for_different_classes), dim=1, keepdim=True) -
-                                           torch.sum(1 - mask_for_different_classes, dim=1, keepdim=True))
+                                           torch.sum(1 - mask_for_different_classes, dim=1, keepdim=True)))
         assert loss_for_each_instance.shape == (batch_size, 1), "loss_for_each_instance.shape != (batch_size, 1)"
 
         if self.reduction == "mean":
