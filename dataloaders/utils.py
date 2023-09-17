@@ -40,7 +40,7 @@ def get_transform(dataset='cifar100', phase='test', aug=True, resize_imnet=False
     #     transform_list.extend([
     #         transforms.RandomResizedCrop(size=224,scale=(0.8,1.0)),
     #         transforms.RandomHorizontalFlip(p=0.5),
-    #         # transforms.RandomC
+    #         transforms.RandomCrop
     #     ])
     # else:
 

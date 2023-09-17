@@ -167,7 +167,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.first_task = True
 
         self.verbose = True
-        self.print_every = 3
+        self.print_every = 5
 
     def _create_criterion_fn(self):
         self.criterion_fn = ContrastivePrototypicalLoss(temperature=0.6, reduction="mean")
@@ -314,8 +314,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                 if need_loss:
                     self.log(' * Loss {loss.avg:.3f} |'.format(loss=losses))
                     losses = AverageMeter()
-                    if self.verbose and epoch % self.print_every:
-                        print("##### Validation time #####")
+                    if self.verbose == True and epoch % self.print_every == 0:
+                        print(f"##### Validation time in epoch: {epoch} #####")
                         self._update_value_prototype(train_loader)
                         loss = self._calculate_validation_loss(val_loader, all_previous_value_prototype)
                         acc = self.validation(dataloader=val_loader, model=None, task_in=None, task_metric='acc', verbal=True)
