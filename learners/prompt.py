@@ -19,6 +19,8 @@ from models.vit import Mlp
 from .CPL import ContrastivePrototypicalLoss
 from models.emb_proj import EmbeddingProjection
 from models.clustering_algorithm import KMeans
+
+
 class Prompt(NormalNN):
 
     def __init__(self, learner_config):
@@ -29,10 +31,10 @@ class Prompt(NormalNN):
 
         # logits
         logits, prompt_loss = self.model(inputs, train=True)
-        logits = logits[:,:self.valid_out_dim]
+        logits = logits[:, :self.valid_out_dim]
 
         # ce with heuristic
-        logits[:,:self.last_valid_out_dim] = -float('inf')
+        logits[:, :self.last_valid_out_dim] = -float('inf')
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         total_loss = self.criterion(logits, targets.long(), dw_cls)
 
@@ -60,10 +62,10 @@ class Prompt(NormalNN):
         # Multi-GPU
         params_to_opt = self._learnable_params()
         print('*****************************************')
-        optimizer_arg = {'params':params_to_opt,
-                         'lr':self.config['lr'],
-                         'weight_decay':self.config['weight_decay']}
-        if self.config['optimizer'] in ['SGD','RMSprop']:
+        optimizer_arg = {'params': params_to_opt,
+                         'lr': self.config['lr'],
+                         'weight_decay': self.config['weight_decay']}
+        if self.config['optimizer'] in ['SGD', 'RMSprop']:
             optimizer_arg['momentum'] = self.config['momentum']
         elif self.config['optimizer'] in ['Rprop']:
             optimizer_arg.pop('weight_decay')
@@ -71,13 +73,13 @@ class Prompt(NormalNN):
             optimizer_arg['amsgrad'] = True
             self.config['optimizer'] = 'Adam'
         elif self.config['optimizer'] == 'Adam':
-            optimizer_arg['betas'] = (self.config['momentum'],0.999)
+            optimizer_arg['betas'] = (self.config['momentum'], 0.999)
         elif self.config["optimizer"] == "AdamW":
             optimizer_arg["betas"] = (0.9, 0.999)
 
         # create optimizers
         self.optimizer = torch.optim.__dict__[self.config['optimizer']](**optimizer_arg)
-        
+
         # create schedules
         # if self.schedule_type == 'cosine':
         #     self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
@@ -94,8 +96,10 @@ class Prompt(NormalNN):
 
         # Multi-GPU
         if len(self.config['gpuid']) > 1:
-            self.model = torch.nn.DataParallel(self.model, device_ids=self.config['gpuid'], output_device=self.config['gpuid'][0])
+            self.model = torch.nn.DataParallel(self.model, device_ids=self.config['gpuid'],
+                                               output_device=self.config['gpuid'][0])
         return self
+
 
 # Our method!
 class CODAPrompt(Prompt):
@@ -105,8 +109,10 @@ class CODAPrompt(Prompt):
 
     def create_model(self):
         cfg = self.config
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'coda',prompt_param=self.prompt_param)
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag='coda',
+                                                                               prompt_param=self.prompt_param)
         return model
+
 
 # @article{wang2022dualprompt,
 #   title={DualPrompt: Complementary Prompting for Rehearsal-free Continual Learning},
@@ -121,8 +127,10 @@ class DualPrompt(Prompt):
 
     def create_model(self):
         cfg = self.config
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'dual', prompt_param=self.prompt_param)
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag='dual',
+                                                                               prompt_param=self.prompt_param)
         return model
+
 
 # @inproceedings{wang2022learning,
 #   title={Learning to prompt for continual learning},
@@ -138,8 +146,10 @@ class L2P(Prompt):
 
     def create_model(self):
         cfg = self.config
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param)
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag='l2p',
+                                                                               prompt_param=self.prompt_param)
         return model
+
 
 class ContrastivePrototypicalPrompt(Prompt):
 
@@ -159,7 +169,8 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def create_model(self):
         cfg = self.config
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'cpp',prompt_param=self.prompt_param)
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag='cpp',
+                                                                               prompt_param=self.prompt_param)
         return model
 
     def _update_prototype_set(self, prototype_set, train_loader, use_prompt=False):
@@ -178,7 +189,8 @@ class ContrastivePrototypicalPrompt(Prompt):
 
                 if use_prompt:
                     # can have previous tasks(?)
-                    last_feature, _ = self.model(x, pen=True, train=False, use_prompt=True, possible_task_id=task.reshape(-1,1))
+                    last_feature, _ = self.model(x, pen=True, train=False, use_prompt=True,
+                                                 possible_task_id=task.reshape(-1, 1))
                 else:
                     last_feature, _ = self.model(x, pen=True, train=False, use_prompt=False)
 
@@ -187,14 +199,17 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             last_features = torch.cat(list_last_feature, dim=0)
             outputs = torch.cat(list_output, dim=0)
-            cluster_algorithm = KMeans(num_classes=self._num_anchor_per_class)
+            if not use_prompt:
+                cluster_algorithm = KMeans(num_classes=self._num_anchor_per_class)
+            else:
+                cluster_algorithm = KMeans(num_classes=1)
             uni_output = sorted(torch.unique(outputs).tolist())
             for class_id in uni_output:
                 feature_set_for_class_id = last_features[outputs == class_id]
                 assert feature_set_for_class_id.ndim == 2, "feature_set_for_class_id.ndim != 2."
                 cluster_algorithm.fit(feature_set_for_class_id)
                 prototype = cluster_algorithm.get_centroids()
-                prototype_set[class_id] = prototype # (_num_anchor_per_class, emb_d)
+                prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
                 if use_prompt:
                     # row_variances = torch.var(feature_set_for_class_id, dim=1)
                     # self.avg_variance[class_id] = torch.mean(row_variances)
@@ -203,10 +218,12 @@ class ContrastivePrototypicalPrompt(Prompt):
             return prototype_set
 
     def _update_key_prototype(self, train_loader):
-        self.key_prototype = self._update_prototype_set(prototype_set=self.key_prototype, train_loader=train_loader, use_prompt=False)
+        self.key_prototype = self._update_prototype_set(prototype_set=self.key_prototype, train_loader=train_loader,
+                                                        use_prompt=False)
 
     def _update_value_prototype(self, train_loader):
-        self.value_prototype = self._update_prototype_set(prototype_set=self.value_prototype, train_loader=train_loader, use_prompt=True)
+        self.value_prototype = self._update_prototype_set(prototype_set=self.value_prototype, train_loader=train_loader,
+                                                          use_prompt=True)
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True, need_acc=False):
         print("##### Attempt to update key prototype set. #####")
@@ -270,6 +287,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                         y = y.cuda()
                     # model update
                     loss = self.update_model(x, y, all_previous_value_prototype)
+                    print(loss)
                     # measure elapsed time
                     batch_time.update(batch_timer.toc())
                     batch_timer.tic()
@@ -298,12 +316,12 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def update_model(self, inputs, targets, all_previous_value_prototype=None):
         # logits
-        if self.first_task == False:
-            # all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
-            all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
+        # if self.first_task == False:
+        # all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
+        # all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
         last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
 
-        print(last_feature)
+        # print(last_feature)
         z_feature = self.MLP_neck(last_feature)
         n_z_feature = nn.functional.normalize(z_feature, dim=1)
         total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
@@ -321,7 +339,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             num_instances = prototype.shape[0]
             avg_var = list()
             for class_id, avg_var_for_each_class in self.avg_variance.items():
-                avg_var.append(avg_var_for_each_class) # avg_var_for_each_class is a number
+                avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
             avg_var = torch.tensor(avg_var)
             assert avg_var.shape[0] * self._num_anchor_per_class == prototype.shape[0]
             # stretch avg_var to be the same size as prototype.shape[0]
@@ -361,7 +379,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                 value = self.value_prototype[class_id].unsqueeze(0)
                 U.append(key)
                 U_hat.append(value)
-            U = torch.cat(U, dim=0) # (num_classes, num_anchors, emb_d)
+            U = torch.cat(U, dim=0)  # (num_classes, num_anchors, emb_d)
             U_hat = torch.cat(U_hat, dim=0)
             assert U.ndim == 3, "Wrong in shape U."
             assert U_hat.ndim == 3, "Wrong in shape U_hat."
@@ -372,7 +390,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                         input = input.cuda()
                         target = target.cuda()
                 if task_in is None:
-                    acc = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input, target=target, task=task, acc=acc, task_in=None)
+                    acc = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input, target=target, task=task,
+                                             acc=acc, task_in=None)
                 else:
                     mask = target >= task_in[0]
                     mask_ind = mask.nonzero().view(-1)
@@ -380,7 +399,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                     mask = target < task_in[-1]
                     mask_ind = mask.nonzero().view(-1)
                     input, target = input[mask_ind], target[mask_ind]
-                    acc = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input, target=target, task=task, acc=acc, task_in=task_in)
+                    acc = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input, target=target, task=task,
+                                             acc=acc, task_in=task_in)
 
         model.train(orig_mode)
         if verbal:
@@ -394,21 +414,21 @@ class ContrastivePrototypicalPrompt(Prompt):
             for class_id in class_range:
                 self.mapping_class_to_task[class_id] = task_id
 
-    def _evaluate_CPP(self,U, U_hat, model, input, target, task, acc, task_in=None):
+    def _evaluate_CPP(self, U, U_hat, model, input, target, task, acc, task_in=None):
         with torch.no_grad():
             top_k = model.prompt.top_k
             # retrieve prototype set in a tensor with ascending order wrt class_id
             x_query = model.retrieve_query_vector(input)
             B, C = x_query.shape
             # cosine similarity to match keys/queries
-            n_U = nn.functional.normalize(U, dim=2) # (num_classes, num_anchors, emb_d)
-            q = nn.functional.normalize(x_query, dim=1).detach() # (B, emb_d)
-            cos_sim = torch.einsum('kj,bij->kbi', q, n_U) # (B, num_classes, num_anchors)
-            flatten_cos_sim = cos_sim.reshape(B, -1) # (B, num_classes * num_anchors)
+            n_U = nn.functional.normalize(U, dim=2)  # (num_classes, num_anchors, emb_d)
+            q = nn.functional.normalize(x_query, dim=1).detach()  # (B, emb_d)
+            cos_sim = torch.einsum('kj,bij->kbi', q, n_U)  # (B, num_classes, num_anchors)
+            flatten_cos_sim = cos_sim.reshape(B, -1)  # (B, num_classes * num_anchors)
             prototype_id_ranking = torch.topk(flatten_cos_sim, top_k, dim=1)
-            ranking = prototype_id_ranking.indices # shape == (B, self.top_k)
+            ranking = prototype_id_ranking.indices  # shape == (B, self.top_k)
             possible_task_id = torch.zeros_like(ranking)
-            # print(ranking)
+            print(ranking)
 
             for class_id in range(self.valid_out_dim):
                 # [0, 5]
@@ -417,7 +437,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                     possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
 
             print(possible_task_id)
-            flatten_possible_task_id = possible_task_id.reshape(-1, 1) # flatten, shape == (B * self.top_k, 1)
+            flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
             print(f"shape of input: {input.shape}")
 
             inp = input.unsqueeze(0)
@@ -426,14 +446,16 @@ class ContrastivePrototypicalPrompt(Prompt):
             input_repeat = input_repeat.reshape(-1, input_repeat.shape[2], input_repeat.shape[3], input_repeat.shape[4])
 
             print(f"shape of input_repeat: {input_repeat.shape}")
-            last_feature, _ = self.model(input_repeat, pen=True, train=False, use_prompt=True, possible_task_id=flatten_possible_task_id)
+            last_feature, _ = self.model(input_repeat, pen=True, train=False, use_prompt=True,
+                                         possible_task_id=flatten_possible_task_id)
             # last_feature.shape == (B * self.top_k, emb_d)
             print(f"shape of last_feature: {last_feature.shape}")
-            assert last_feature.shape == (B * top_k, self.model.prompt.emb_d), "last_feature.shape != (B * top_k, self.model.prompt.emb_d)."
+            assert last_feature.shape == (B * top_k, self.model.prompt.emb_d), \
+                "last_feature.shape != (B * top_k, self.model.prompt.emb_d)."
             fine_grained_query = last_feature.reshape(B, top_k, self.model.prompt.emb_d)
 
-            n_U_hat = nn.functional.normalize(U_hat, dim=2) # (num_classes, num_anchors, emb_d)
-            n_fine_grained_query = nn.functional.normalize(fine_grained_query, dim=-1) # (B, top_k, emb_d)
+            n_U_hat = nn.functional.normalize(U_hat, dim=2)  # (num_classes, num_anchors, emb_d)
+            n_fine_grained_query = nn.functional.normalize(fine_grained_query, dim=-1)  # (B, top_k, emb_d)
             assert n_fine_grained_query.shape == (B, top_k, self.model.prompt.emb_d), "Wrong in _evaluate method (2)."
 
             # likelihood_among_top_k_classes.shape == (B, num_classes, top_k, num_anchors)

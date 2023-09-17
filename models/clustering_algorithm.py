@@ -5,7 +5,7 @@ import numpy as np
 
 class KMeans():
 
-    def __init__(self, num_classes=5, max_iter=500):
+    def __init__(self, num_classes=5, max_iter=1000):
 
         self._centroids = None
         self.num_classes = num_classes
