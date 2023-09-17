@@ -164,10 +164,9 @@ class ContrastivePrototypicalPrompt(Prompt):
         self._num_anchor_key_prototype_per_class = 5
         self._create_mapping_from_class_to_task()
         self.first_task = True
-        self._temp = 0.6
 
     def _create_criterion_fn(self):
-        self.criterion_fn = ContrastivePrototypicalLoss(temperature=self._temp, reduction="mean")
+        self.criterion_fn = ContrastivePrototypicalLoss(temperature=0.6, reduction="mean")
 
     def create_model(self):
         cfg = self.config
