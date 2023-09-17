@@ -162,12 +162,11 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.MLP_neck = None
         self._num_anchor_value_prototype_per_class = 5
         self._num_anchor_key_prototype_per_class = 5
-        self.num_sampled_value_prototype = 4
         self._create_mapping_from_class_to_task()
         self.first_task = True
 
         self.verbose = True
-        self.print_every = 5
+        self.print_every = 3
 
     def _create_criterion_fn(self):
         self.criterion_fn = ContrastivePrototypicalLoss(temperature=0.6, reduction="mean")
@@ -217,9 +216,9 @@ class ContrastivePrototypicalPrompt(Prompt):
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
                 if use_prompt:
                     row_variances = torch.var(feature_set_for_class_id, dim=1)
-                    self.avg_variance[class_id] = torch.mean(row_variances)
+                    # self.avg_variance[class_id] = torch.mean(row_variances)
                     # print(self.avg_variance[class_id])
-                    # self.avg_variance[class_id] = torch.tensor(1.0)
+                    self.avg_variance[class_id] = torch.tensor(1.0)
             return prototype_set
 
     def _update_key_prototype(self, train_loader):
@@ -464,7 +463,6 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def _evaluate_CPP(self, U, U_hat, model, input, target, task, acc, task_in=None):
         with torch.no_grad():
-            ground_truth_task = torch.unique(task).cuda()
             top_k = model.prompt.top_k
             # retrieve prototype set in a tensor with ascending order wrt class_id
             x_query = model.retrieve_query_vector(input)
@@ -487,7 +485,13 @@ class ContrastivePrototypicalPrompt(Prompt):
                     possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
 
             # print(possible_task_id)
-            num_element_correct_task = torch.sum(possible_task_id == ground_truth_task)
+            diff = possible_task_id - task.unsqueeze(1)
+            same = torch.zeros_like(diff)
+            same[diff == 0] = 1
+            same[diff != 0] = 0
+            same = torch.sum(same, dim=1)
+            same[same > 1] = 1
+            num_element_correct_task = torch.sum(same)
             total_element = torch.numel(possible_task_id)
             # print(f"In task {ground_truth_task}, "
             #       f"number of correct task: {num_element_correct_task} in {total_element} elements")

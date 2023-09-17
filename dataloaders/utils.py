@@ -15,6 +15,26 @@ import PIL.ImageEnhance
 import PIL.ImageDraw
 from PIL import Image
 
+class ColorJitter:
+    def __init__(
+        self,
+        p,
+        brightness=0.0,
+        contrast=0.0,
+        saturation=0.0,
+        hue= 0.0,
+    ):
+        self.p = p
+        self.brightness = brightness
+        self.contrast = contrast
+        self.saturation = saturation
+        self.hue = hue
+
+    def __call__(self, img):
+        if np.random.uniform(0,1) > self.p:
+            return img
+        return transforms.ColorJitter(self.brightness, self.contrast, self.saturation, self.hue)(img)
+
 dataset_stats = {
     'CIFAR10': {'mean': (0.49139968, 0.48215827 ,0.44653124),
                  'std' : (0.24703233, 0.24348505, 0.26158768),
@@ -36,40 +56,51 @@ def get_transform(dataset='cifar100', phase='test', aug=True, resize_imnet=False
     dset_mean = (0.0,0.0,0.0) # dataset_stats[dataset]['mean']
     dset_std = (1.0,1.0,1.0) # dataset_stats[dataset]['std']
 
-    # if dataset == "CIFAR100":
-    #     transform_list.extend([
-    #         transforms.RandomResizedCrop(size=224,scale=(0.8,1.0)),
-    #         transforms.RandomHorizontalFlip(p=0.5),
-    #         transforms.RandomCrop
-    #     ])
-    # else:
-
-    if dataset == 'ImageNet32' or dataset == 'ImageNet84':
-        transform_list.extend([
-            transforms.Resize((crop_size,crop_size))
-        ])
-
-    if phase == 'train':
-        transform_list.extend([
-            transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(dset_mean, dset_std),
-                            ])
-    else:
-        if dataset.startswith('ImageNet') or dataset == 'DomainNet':
+    if dataset == "CIFAR100":
+        if phase == 'train':
             transform_list.extend([
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
+                transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
+                transforms.RandomHorizontalFlip(p=0.5),
+                ColorJitter(brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1, p=0.8),
+                transforms.RandomGrayscale(p=0.2),
+                transforms.RandomApply([transforms.GaussianBlur(23, sigma=(0.1, 2.0))], p=0.1),
+                transforms.RandomSolarize(0.2),
                 transforms.ToTensor(),
-                transforms.Normalize(dset_mean, dset_std),
-                                ])
+                transforms.Normalize(dset_mean, dset_std)
+            ])
         else:
             transform_list.extend([
                 transforms.Resize(224),
                 transforms.ToTensor(),
+                transforms.Normalize(dset_mean, dset_std)
+            ])
+    else:
+        if dataset == 'ImageNet32' or dataset == 'ImageNet84':
+            transform_list.extend([
+                transforms.Resize((crop_size,crop_size))
+            ])
+
+        if phase == 'train':
+            transform_list.extend([
+                transforms.RandomResizedCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
                 transforms.Normalize(dset_mean, dset_std),
                                 ])
+        else:
+            if dataset.startswith('ImageNet') or dataset == 'DomainNet':
+                transform_list.extend([
+                    transforms.Resize(256),
+                    transforms.CenterCrop(224),
+                    transforms.ToTensor(),
+                    transforms.Normalize(dset_mean, dset_std),
+                                    ])
+            else:
+                transform_list.extend([
+                    transforms.Resize(224),
+                    transforms.ToTensor(),
+                    transforms.Normalize(dset_mean, dset_std),
+                                    ])
 
 
     return transforms.Compose(transform_list)
