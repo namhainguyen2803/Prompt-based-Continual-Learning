@@ -160,7 +160,8 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = dict()
         self.avg_variance = dict()
         self.MLP_neck = None
-        self._num_anchor_per_class = 5
+        self._num_anchor_value_prototype_per_class = 1
+        self._num_anchor_key_prototype_per_class = 5
         self._create_mapping_from_class_to_task()
         self.first_task = True
 
@@ -199,10 +200,10 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             last_features = torch.cat(list_last_feature, dim=0)
             outputs = torch.cat(list_output, dim=0)
-            if not use_prompt:
-                cluster_algorithm = KMeans(num_classes=self._num_anchor_per_class)
+            if use_prompt:
+                cluster_algorithm = KMeans(num_classes=self._num_anchor_value_prototype_per_class)
             else:
-                cluster_algorithm = KMeans(num_classes=1)
+                cluster_algorithm = KMeans(num_classes=self._num_anchor_key_prototype_per_class)
             uni_output = sorted(torch.unique(outputs).tolist())
             for class_id in uni_output:
                 feature_set_for_class_id = last_features[outputs == class_id]
@@ -211,8 +212,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                 prototype = cluster_algorithm.get_centroids()
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
                 if use_prompt:
-                    # row_variances = torch.var(feature_set_for_class_id, dim=1)
-                    # self.avg_variance[class_id] = torch.mean(row_variances)
+                    row_variances = torch.var(feature_set_for_class_id, dim=1)
+                    self.avg_variance[class_id] = torch.mean(row_variances)
                     # print(self.avg_variance[class_id])
                     self.avg_variance[class_id] = torch.tensor(1.0)
             return prototype_set
@@ -316,8 +317,8 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def update_model(self, inputs, targets, all_previous_value_prototype=None):
         # logits
-        if self.first_task == False:
-            all_previous_value_prototype = self._perturb_key_prototype(all_previous_value_prototype)
+        if not self.first_task:
+            all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype)
             all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
         last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
 
@@ -333,7 +334,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
         return total_loss.detach()
 
-    def _perturb_key_prototype(self, prototype):
+    def _perturb_value_prototype(self, prototype):
         with torch.no_grad():
             vect_dim = prototype.shape[1]
             num_instances = prototype.shape[0]
