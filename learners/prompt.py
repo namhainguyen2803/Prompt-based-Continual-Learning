@@ -215,7 +215,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                 prototype = cluster_algorithm.get_centroids()
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
                 if use_prompt:
-                    row_variances = torch.var(feature_set_for_class_id, dim=1)
+                    # row_variances = torch.var(feature_set_for_class_id, dim=1)
                     # self.avg_variance[class_id] = torch.mean(row_variances)
                     # print(self.avg_variance[class_id])
                     self.avg_variance[class_id] = torch.tensor(1.0)
@@ -359,7 +359,7 @@ class ContrastivePrototypicalPrompt(Prompt):
     def update_model(self, inputs, targets, all_previous_value_prototype=None):
         # logits
         if not self.first_task:
-            # all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype)
+            all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype)
             all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
         last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
 
@@ -443,7 +443,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                     mask_ind = mask.nonzero().view(-1)
                     input, target = input[mask_ind], target[mask_ind]
                     acc, correct_task, num_element = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input,
-                                                                        target=target, task=task, acc=acc, task_in=task_in)
+                                                                        target=target, task=task, acc=acc, task_in=task_in, iter=i)
                 total_correct += correct_task
                 total_element += num_element
         model.train(orig_mode)
@@ -461,7 +461,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             for class_id in class_range:
                 self.mapping_class_to_task[class_id] = task_id
 
-    def _evaluate_CPP(self, U, U_hat, model, input, target, task, acc, task_in=None):
+    def _evaluate_CPP(self, U, U_hat, model, input, target, task, acc, task_in=None, iter=None):
         with torch.no_grad():
             top_k = model.prompt.top_k
             # retrieve prototype set in a tensor with ascending order wrt class_id
@@ -485,6 +485,11 @@ class ContrastivePrototypicalPrompt(Prompt):
                     possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
 
             # print(possible_task_id)
+            if iter is not None:
+                if iter % 5 == 0:
+                    print(f"task id: {task}")
+                    print(f"possible task id: {possible_task_id}")
+
             diff = possible_task_id - task.unsqueeze(1).cuda()
             same = torch.zeros_like(diff).cuda()
             same[diff == 0] = 1
