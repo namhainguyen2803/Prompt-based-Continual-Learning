@@ -235,7 +235,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         print("Reset MLP neck.")
         # learn prompt
         print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
-        self._learn_batch(train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True)
+        self._learn_batch(train_loader, train_dataset, model_save_dir, val_loader=val_loader, need_loss=need_loss)
         print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
         print("##### Attempt to update value prototype set. #####")
         self._update_value_prototype(train_loader)

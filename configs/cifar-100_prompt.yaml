@@ -6,9 +6,9 @@ schedule:
 schedule_type: cosine
 batch_size: 64
 optimizer: AdamW
-lr: 0.001
+lr: 0.00025
 momentum: 0.9
-weight_decay: 0
+weight_decay: 4
 model_type: zoo
 model_name: vit_pt_imnet
 max_task: -1
