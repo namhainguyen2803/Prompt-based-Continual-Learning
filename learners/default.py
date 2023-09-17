@@ -263,10 +263,10 @@ class NormalNN(nn.Module):
         self.optimizer = torch.optim.__dict__[self.config['optimizer']](**optimizer_arg)
         
         # create schedules
-        # if self.schedule_type == 'cosine':
-        #     self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
-        # elif self.schedule_type == 'decay':
-        #     self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
+        if self.schedule_type == 'cosine':
+            self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
+        elif self.schedule_type == 'decay':
+            self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
 
     def create_model(self):
         cfg = self.config

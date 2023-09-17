@@ -81,10 +81,10 @@ class Prompt(NormalNN):
         self.optimizer = torch.optim.__dict__[self.config['optimizer']](**optimizer_arg)
 
         # create schedules
-        # if self.schedule_type == 'cosine':
-        #     self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
-        # elif self.schedule_type == 'decay':
-        #     self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
+        if self.schedule_type == 'cosine':
+            self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
+        elif self.schedule_type == 'decay':
+            self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
 
     def create_model(self):
         pass
@@ -164,9 +164,10 @@ class ContrastivePrototypicalPrompt(Prompt):
         self._num_anchor_key_prototype_per_class = 5
         self._create_mapping_from_class_to_task()
         self.first_task = True
+        self._temp = 0.6
 
     def _create_criterion_fn(self):
-        self.criterion_fn = ContrastivePrototypicalLoss(temperature=3, reduction="mean")
+        self.criterion_fn = ContrastivePrototypicalLoss(temperature=self._temp, reduction="mean")
 
     def create_model(self):
         cfg = self.config
@@ -275,8 +276,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                       f"requires grad: {all_previous_value_prototype.requires_grad}")
             for epoch in range(self.config['schedule'][-1]):
                 self.epoch = epoch
-                # if epoch > 0:
-                #     self.scheduler.step()
+                if epoch > 0:
+                    self.scheduler.step()
                 for param_group in self.optimizer.param_groups:
                     self.log('LR:', param_group['lr'])
                 batch_timer.tic()
