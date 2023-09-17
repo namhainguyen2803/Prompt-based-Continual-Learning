@@ -383,7 +383,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             U_hat = torch.cat(U_hat, dim=0)
             assert U.ndim == 3, "Wrong in shape U."
             assert U_hat.ndim == 3, "Wrong in shape U_hat."
-
+            print(f"Shape of U: {U.shape}, Shape of U_hat: {U_hat.shape}")
             for i, (input, target, task) in enumerate(dataloader):
                 if self.gpu:
                     with torch.no_grad():
