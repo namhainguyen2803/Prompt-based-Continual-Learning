@@ -416,7 +416,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def _evaluate_CPP(self, U, U_hat, model, input, target, task, acc, task_in=None):
         with torch.no_grad():
-            ground_truth_task = torch.unique(task)
+            ground_truth_task = torch.unique(task).cuda()
             top_k = model.prompt.top_k
             # retrieve prototype set in a tensor with ascending order wrt class_id
             x_query = model.retrieve_query_vector(input)
@@ -428,7 +428,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             flatten_cos_sim = cos_sim.reshape(B, -1)  # (B, num_classes * num_anchors)
             prototype_id_ranking = torch.topk(flatten_cos_sim, top_k, dim=1)
             ranking = prototype_id_ranking.indices  # shape == (B, self.top_k)
-            possible_task_id = torch.zeros_like(ranking)
+            possible_task_id = torch.zeros_like(ranking).cuda()
             # print(ranking)
 
             for class_id in range(self.valid_out_dim):
