@@ -492,7 +492,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             same = torch.sum(same, dim=1)
             same[same > 1] = 1
             num_element_correct_task = torch.sum(same)
-            total_element = torch.numel(possible_task_id)
+            total_element = possible_task_id.shape[0]
             # print(f"In task {ground_truth_task}, "
             #       f"number of correct task: {num_element_correct_task} in {total_element} elements")
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
