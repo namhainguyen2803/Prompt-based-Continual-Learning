@@ -14,6 +14,6 @@ model_name: vit_pt_imnet
 max_task: -1
 dataroot: data
 workers: 4
-validation: False
+validation: True
 train_aug: True
 rand_split: True

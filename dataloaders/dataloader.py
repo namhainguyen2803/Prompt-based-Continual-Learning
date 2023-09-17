@@ -70,8 +70,8 @@ class iDataset(data.Dataset):
 
             # train set
             if self.train:
-                self.data = self.data[:int(0.8*n_data)]
-                self.targets = self.targets[:int(0.8*n_data)]
+                # self.data = self.data[:int(0.8*n_data)]
+                # self.targets = self.targets[:int(0.8*n_data)]
                 self.archive = []
                 domain_i = 0
                 for task in self.tasks:

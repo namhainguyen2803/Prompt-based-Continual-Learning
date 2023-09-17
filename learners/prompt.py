@@ -160,11 +160,14 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = dict()
         self.avg_variance = dict()
         self.MLP_neck = None
-        self._num_anchor_value_prototype_per_class = 1
+        self._num_anchor_value_prototype_per_class = 5
         self._num_anchor_key_prototype_per_class = 5
         self.num_sampled_value_prototype = 4
         self._create_mapping_from_class_to_task()
         self.first_task = True
+
+        self.verbose = True
+        self.print_every = 3
 
     def _create_criterion_fn(self):
         self.criterion_fn = ContrastivePrototypicalLoss(temperature=0.6, reduction="mean")
@@ -216,7 +219,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                     row_variances = torch.var(feature_set_for_class_id, dim=1)
                     self.avg_variance[class_id] = torch.mean(row_variances)
                     # print(self.avg_variance[class_id])
-                    self.avg_variance[class_id] = torch.tensor(1.0)
+                    # self.avg_variance[class_id] = torch.tensor(1.0)
             return prototype_set
 
     def _update_key_prototype(self, train_loader):
@@ -289,13 +292,13 @@ class ContrastivePrototypicalPrompt(Prompt):
                         x = x.cuda()
                         y = y.cuda()
                     # model update
-                    if not self.first_task:
-                        total_rows = all_previous_value_prototype.shape[0]
-                        sampled_indices = torch.randperm(total_rows)[:self.num_sampled_value_prototype]
-                        sample_all_previous_value_prototype = all_previous_value_prototype[sampled_indices]
-                    else:
-                        sample_all_previous_value_prototype = None
-                    loss = self.update_model(x, y, sample_all_previous_value_prototype)
+                    # if not self.first_task:
+                    #     total_rows = all_previous_value_prototype.shape[0]
+                    #     sampled_indices = torch.randperm(total_rows)[:self.num_sampled_value_prototype]
+                    #     sample_all_previous_value_prototype = all_previous_value_prototype[sampled_indices]
+                    # else:
+                    #     sample_all_previous_value_prototype = None
+                    loss = self.update_model(x, y, all_previous_value_prototype)
                     # print(loss)
                     # measure elapsed time
                     batch_time.update(batch_timer.toc())
@@ -311,6 +314,13 @@ class ContrastivePrototypicalPrompt(Prompt):
                 if need_loss:
                     self.log(' * Loss {loss.avg:.3f} |'.format(loss=losses))
                     losses = AverageMeter()
+                    if self.verbose and epoch % self.print_every:
+                        print("##### Validation time #####")
+                        self._update_value_prototype(train_loader)
+                        loss = self._calculate_validation_loss(val_loader, all_previous_value_prototype)
+                        acc = self.validation(dataloader=val_loader, model=None, task_in=None, task_metric='acc', verbal=True)
+                        print(f"Accuracy in validation: {acc}, loss value: {loss}")
+                        print("##### End validation #####")
         self.model.eval()
         self.last_valid_out_dim = self.valid_out_dim
         self.first_task = False
@@ -323,10 +333,24 @@ class ContrastivePrototypicalPrompt(Prompt):
         except:
             return None
 
+    def _calculate_validation_loss(self, train_loader, all_previous_value_prototype):
+        with torch.no_grad():
+            total_loss = 0
+            for i, (x, y, task) in enumerate(train_loader):
+                # verify in train mode
+                self.model.train()
+                # send data to gpu
+                if self.gpu:
+                    x = x.cuda()
+                    y = y.cuda()
+                loss = self.update_model(x, y, all_previous_value_prototype)
+                total_loss += loss
+            return total_loss
+
     def update_model(self, inputs, targets, all_previous_value_prototype=None):
         # logits
         if not self.first_task:
-            all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype)
+            # all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype)
             all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
         last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
 
