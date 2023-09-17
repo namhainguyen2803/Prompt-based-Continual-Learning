@@ -162,6 +162,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.MLP_neck = None
         self._num_anchor_value_prototype_per_class = 1
         self._num_anchor_key_prototype_per_class = 5
+        self.num_sampled_value_prototype = 4
         self._create_mapping_from_class_to_task()
         self.first_task = True
 
@@ -288,7 +289,13 @@ class ContrastivePrototypicalPrompt(Prompt):
                         x = x.cuda()
                         y = y.cuda()
                     # model update
-                    loss = self.update_model(x, y, all_previous_value_prototype)
+                    if not self.first_task:
+                        total_rows = all_previous_value_prototype.shape[0]
+                        sampled_indices = torch.randperm(total_rows)[:self.num_sampled_value_prototype]
+                        sample_all_previous_value_prototype = all_previous_value_prototype[sampled_indices]
+                    else:
+                        sample_all_previous_value_prototype = None
+                    loss = self.update_model(x, y, sample_all_previous_value_prototype)
                     # print(loss)
                     # measure elapsed time
                     batch_time.update(batch_timer.toc())
