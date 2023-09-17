@@ -289,7 +289,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                         y = y.cuda()
                     # model update
                     loss = self.update_model(x, y, all_previous_value_prototype)
-                    print(loss)
+                    # print(loss)
                     # measure elapsed time
                     batch_time.update(batch_timer.toc())
                     batch_timer.tic()
