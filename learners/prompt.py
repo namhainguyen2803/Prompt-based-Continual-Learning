@@ -1,5 +1,7 @@
 from __future__ import print_function
 import math
+import random
+
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -328,7 +330,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                     if self.verbose == True and epoch % self.print_every == 0:
                         print(f"##### Validation time in epoch: {epoch} #####")
                         self._update_value_prototype(train_loader)
-                        loss = self._calculate_validation_loss(val_loader, all_previous_value_prototype)
+                        loss = self._calculate_validation_loss(val_loader, all_previous_value_prototype, avg_var)
                         acc = self.validation(dataloader=val_loader, model=None, task_in=None, task_metric='acc', verbal=True)
                         print(f"Accuracy in validation: {acc}, loss value: {loss}")
                         print("##### End validation #####")
@@ -344,7 +346,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         except:
             return None
 
-    def _calculate_validation_loss(self, train_loader, all_previous_value_prototype):
+    def _calculate_validation_loss(self, train_loader, all_previous_value_prototype, avg_var):
         with torch.no_grad():
             total_loss = 0
             total_element = 0
@@ -356,9 +358,10 @@ class ContrastivePrototypicalPrompt(Prompt):
                     x = x.cuda()
                     y = y.cuda()
                 if not self.first_task:
-                    all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype)
+                    all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype, avg_var)
                     all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
-                last_feature, _, prompt_loss = self.model(x, pen=True, train=True, use_prompt=True)
+                last_feature, _, prompt_loss = self.model(x, pen=True, train=False,
+                                                          use_prompt=True, possible_task_id = task.reshape(-1, 1))
 
                 z_feature = self.MLP_neck(last_feature)
                 n_z_feature = nn.functional.normalize(z_feature, dim=1)
@@ -458,7 +461,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                     mask_ind = mask.nonzero().view(-1)
                     input, target = input[mask_ind], target[mask_ind]
                     acc, correct_task, num_element = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input,
-                                                                        target=target, task=task, acc=acc, task_in=task_in, iter=i)
+                                                                        target=target, task=task, acc=acc, task_in=task_in)
                 total_correct += correct_task
                 total_element += num_element
         model.train(orig_mode)
@@ -476,7 +479,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             for class_id in class_range:
                 self.mapping_class_to_task[class_id] = task_id
 
-    def _evaluate_CPP(self, U, U_hat, model, input, target, task, acc, task_in=None, iter=None):
+    def _evaluate_CPP(self, U, U_hat, model, input, target, task, acc, task_in=None):
         with torch.no_grad():
             top_k = model.prompt.top_k
             # retrieve prototype set in a tensor with ascending order wrt class_id
@@ -490,7 +493,6 @@ class ContrastivePrototypicalPrompt(Prompt):
             prototype_id_ranking = torch.topk(flatten_cos_sim, top_k, dim=1)
             ranking = prototype_id_ranking.indices  # shape == (B, self.top_k)
             possible_task_id = torch.zeros_like(ranking).cuda()
-            print(ranking)
 
             for class_id in range(self.valid_out_dim):
                 # [0, 5]
@@ -499,19 +501,24 @@ class ContrastivePrototypicalPrompt(Prompt):
                 for c in range(class_range[0], class_range[1]):
                     possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
 
-            print(possible_task_id)
-            if iter is not None:
-                if iter % 5 == 0:
-                    print(f"task id: {task}")
-                    print(f"possible task id: {possible_task_id}")
-
             diff = possible_task_id - task.unsqueeze(1).cuda()
             same = torch.zeros_like(diff).cuda()
             same[diff == 0] = 1
             same[diff != 0] = 0
             same = torch.sum(same, dim=1)
             same[same > 1] = 1
-            print(same)
+
+            x = random.randint(0, 2)
+            if x == 0:
+                print(cos_sim[:2])
+                print(flatten_cos_sim[:2])
+                print(ranking[:2])
+                print(f"Possible task id in 8 first rows")
+                n = min(8, ranking.shape[0])
+                print(ranking[:n,:])
+                print(possible_task_id[:n,:])
+                print(same[:n])
+
             num_element_correct_task = torch.sum(same)
             total_element = possible_task_id.shape[0]
             # print(f"In task {ground_truth_task}, "
