@@ -205,7 +205,6 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             last_features = torch.cat(list_last_feature, dim=0)
             outputs = torch.cat(list_output, dim=0)
-            print(f"last_feature of class 9: {last_features[outputs == 9]}")
             uni_output = sorted(torch.unique(outputs).tolist())
             for class_id in uni_output:
                 if use_prompt:
@@ -217,8 +216,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                 cluster_algorithm.fit(feature_set_for_class_id)
                 prototype = cluster_algorithm.get_centroids()
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
-                if class_id == 9:
-                    print(f"prototype: {prototype}")
+                check_tensor_nan(prototype, "prototype")
+                check_tensor_nan(feature_set_for_class_id, "feature_set_for_class_id")
                 if use_prompt:
                     # row_variances = torch.var(feature_set_for_class_id, dim=1)
                     # self.avg_variance[class_id] = torch.mean(row_variances)
@@ -357,9 +356,10 @@ class ContrastivePrototypicalPrompt(Prompt):
                 if not self.first_task:
                     all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype, avg_var)
                     all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
+                    check_tensor_nan(all_previous_value_prototype, "all_previous_value_prototype (1)")
                 last_feature, _ = self.model(x, pen=True, train=False,
                                                           use_prompt=True, possible_task_id = task.reshape(-1, 1))
-
+                check_tensor_nan(last_feature, "last_feature")
                 z_feature = self.MLP_neck(last_feature)
                 n_z_feature = nn.functional.normalize(z_feature, dim=1)
                 loss = self.criterion_fn(z_feature=n_z_feature, label=y,
@@ -374,9 +374,9 @@ class ContrastivePrototypicalPrompt(Prompt):
             if avg_var is not None and all_previous_value_prototype is not None:
                 all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype, avg_var)
             all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
+            check_tensor_nan(all_previous_value_prototype, "all_previous_value_prototype")
         last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
-
-        # print(last_feature)
+        check_tensor_nan(last_feature, "last_feature")
         z_feature = self.MLP_neck(last_feature)
         n_z_feature = nn.functional.normalize(z_feature, dim=1)
         total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
@@ -431,6 +431,8 @@ class ContrastivePrototypicalPrompt(Prompt):
             assert U.ndim == 3, "Wrong in shape U."
             assert U_hat.ndim == 3, "Wrong in shape U_hat."
             print(f"Shape of U: {U.shape}, Shape of U_hat: {U_hat.shape}")
+            check_tensor_nan(U, "U")
+            check_tensor_nan(U_hat, "U_hat")
             total_correct = 0
             total_element = 0
             for i, (input, target, task) in enumerate(dataloader):
@@ -534,3 +536,9 @@ class ContrastivePrototypicalPrompt(Prompt):
                 output = max_likelihood_among_k_classes[:, task_in]
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc, num_element_correct_task, total_element
+
+
+def check_tensor_nan(tensor, tensor_name="a"):
+    has_nan = torch.isnan(tensor).any().item()
+    if has_nan:
+        raise f"Tensor {tensor_name} is nan."
