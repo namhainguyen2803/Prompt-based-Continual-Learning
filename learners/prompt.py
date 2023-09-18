@@ -308,12 +308,6 @@ class ContrastivePrototypicalPrompt(Prompt):
                         x = x.cuda()
                         y = y.cuda()
                     # model update
-                    # if not self.first_task:
-                    #     total_rows = all_previous_value_prototype.shape[0]
-                    #     sampled_indices = torch.randperm(total_rows)[:self.num_sampled_value_prototype]
-                    #     sample_all_previous_value_prototype = all_previous_value_prototype[sampled_indices]
-                    # else:
-                    #     sample_all_previous_value_prototype = None
                     loss = self.update_model(x, y, all_previous_value_prototype, avg_var)
                     # print(loss)
                     # measure elapsed time
@@ -398,15 +392,6 @@ class ContrastivePrototypicalPrompt(Prompt):
         with torch.no_grad():
             vect_dim = prototype.shape[1]
             num_instances = prototype.shape[0]
-            # avg_var = list()
-            # for class_id, avg_var_for_each_class in self.avg_variance.items():
-            #     if class_id < self.last_valid_out_dim:
-            #         avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
-            # avg_var = torch.tensor(avg_var)
-            # # print(avg_var.shape[0], prototype.shape[0])
-            # assert avg_var.shape[0] * self._num_anchor_value_prototype_per_class == prototype.shape[0]
-            # # stretch avg_var to be the same size as prototype.shape[0]
-            # avg_var = avg_var.repeat(self._num_anchor_value_prototype_per_class).unsqueeze(-1).cuda()
             mean = torch.zeros(vect_dim)
             covariance = torch.eye(vect_dim)
             gaussian_noise = torch.distributions.MultivariateNormal(mean, covariance).sample([num_instances]).cuda()
@@ -510,19 +495,6 @@ class ContrastivePrototypicalPrompt(Prompt):
             same[diff != 0] = 0
             same = torch.sum(same, dim=1)
             same[same > 1] = 1
-
-            x = random.randint(0, 2)
-            if x == 0:
-                print(n_U[9])
-                print(q[0])
-                print(cos_sim[0])
-                print(flatten_cos_sim[0])
-                print(ranking[0])
-                print(f"Possible task id in 2 first rows")
-                n = min(1, ranking.shape[0])
-                print(ranking[:n,:])
-                print(possible_task_id[:n,:])
-                print(same[:n])
 
             num_element_correct_task = torch.sum(same)
             total_element = possible_task_id.shape[0]
