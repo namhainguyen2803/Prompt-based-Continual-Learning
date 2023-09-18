@@ -265,6 +265,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             all_previous_value_prototype = None
             avg_var = None
             if not self.first_task:
+
                 # retrieve all perturbed prototype set in a single tensor
                 all_previous_value_prototype = list()
                 for class_id, value_prototype_set in self.value_prototype.items():
@@ -278,14 +279,11 @@ class ContrastivePrototypicalPrompt(Prompt):
                 print(f"Check value_prototype, having shape: {all_previous_value_prototype.shape}, "
                       f"requires grad: {all_previous_value_prototype.requires_grad}")
 
-                vect_dim = all_previous_value_prototype.shape[1]
-                num_instances = all_previous_value_prototype.shape[0]
                 avg_var = list()
                 for class_id, avg_var_for_each_class in self.avg_variance.items():
                     if class_id < self.last_valid_out_dim:
                         avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
                 avg_var = torch.tensor(avg_var)
-                # print(avg_var.shape[0], prototype.shape[0])
                 assert avg_var.shape[0] * self._num_anchor_value_prototype_per_class == all_previous_value_prototype.shape[0]
                 # stretch avg_var to be the same size as prototype.shape[0]
                 avg_var = avg_var.repeat(self._num_anchor_value_prototype_per_class).unsqueeze(-1).cuda()
@@ -492,7 +490,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             prototype_id_ranking = torch.topk(flatten_cos_sim, top_k, dim=1)
             ranking = prototype_id_ranking.indices  # shape == (B, self.top_k)
             possible_task_id = torch.zeros_like(ranking).cuda()
-            # print(ranking)
+            print(ranking)
 
             for class_id in range(self.valid_out_dim):
                 # [0, 5]
@@ -501,7 +499,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                 for c in range(class_range[0], class_range[1]):
                     possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
 
-            # print(possible_task_id)
+            print(possible_task_id)
             if iter is not None:
                 if iter % 5 == 0:
                     print(f"task id: {task}")
@@ -513,6 +511,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             same[diff != 0] = 0
             same = torch.sum(same, dim=1)
             same[same > 1] = 1
+            print(same)
             num_element_correct_task = torch.sum(same)
             total_element = possible_task_id.shape[0]
             # print(f"In task {ground_truth_task}, "
