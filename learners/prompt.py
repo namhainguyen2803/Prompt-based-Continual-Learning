@@ -360,7 +360,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                 if not self.first_task:
                     all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype, avg_var)
                     all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
-                last_feature, _, prompt_loss = self.model(x, pen=True, train=False,
+                last_feature, _ = self.model(x, pen=True, train=False,
                                                           use_prompt=True, possible_task_id = task.reshape(-1, 1))
 
                 z_feature = self.MLP_neck(last_feature)
