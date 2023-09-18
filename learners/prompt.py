@@ -81,10 +81,10 @@ class Prompt(NormalNN):
         self.optimizer = torch.optim.__dict__[self.config['optimizer']](**optimizer_arg)
 
         # create schedules
-        # if self.schedule_type == 'cosine':
-        #     self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
-        # elif self.schedule_type == 'decay':
-        #     self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
+        if self.schedule_type == 'cosine':
+            self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
+        elif self.schedule_type == 'decay':
+            self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
 
     def create_model(self):
         pass
@@ -278,8 +278,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                       f"requires grad: {all_previous_value_prototype.requires_grad}")
             for epoch in range(self.config['schedule'][-1]):
                 self.epoch = epoch
-                # if epoch > 0:
-                #     self.scheduler.step()
+                if epoch > 0:
+                    self.scheduler.step()
                 for param_group in self.optimizer.param_groups:
                     self.log('LR:', param_group['lr'])
                 batch_timer.tic()
@@ -381,7 +381,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             num_instances = prototype.shape[0]
             avg_var = list()
             for class_id, avg_var_for_each_class in self.avg_variance.items():
-                if class_id < self.valid_out_dim:
+                if class_id < self.last_valid_out_dim:
                     avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
             avg_var = torch.tensor(avg_var)
             # print(avg_var.shape[0], prototype.shape[0])
