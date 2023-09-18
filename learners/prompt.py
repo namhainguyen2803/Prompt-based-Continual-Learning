@@ -168,7 +168,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.first_task = True
 
         self.verbose = True
-        self.print_every = 3
+        self.print_every = 1
 
     def _create_criterion_fn(self):
         self.criterion_fn = ContrastivePrototypicalLoss(temperature=0.6, reduction="mean")
@@ -500,12 +500,11 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             num_element_correct_task = torch.sum(same)
 
-            x = random.randint(1, 3)
-            if x == 3:
-                n = min(10, B)
-                print(possible_task_id[:n])
-                print(task[:n])
-
+            # x = random.randint(1, 2)
+            # if x == 3:
+            # n = min(10, B)
+            print(possible_task_id)
+            print(task)
             print(f"number of correct task: {num_element_correct_task} in {B} elements")
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
 
