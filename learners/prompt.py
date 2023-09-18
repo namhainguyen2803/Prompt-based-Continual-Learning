@@ -217,6 +217,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                 cluster_algorithm.fit(feature_set_for_class_id)
                 prototype = cluster_algorithm.get_centroids()
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
+                if class_id == 9:
+                    print(f"prototype: {prototype}")
                 if use_prompt:
                     # row_variances = torch.var(feature_set_for_class_id, dim=1)
                     # self.avg_variance[class_id] = torch.mean(row_variances)
@@ -517,7 +519,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                 print(flatten_cos_sim[0])
                 print(ranking[0])
                 print(f"Possible task id in 2 first rows")
-                n = min(2, ranking.shape[0])
+                n = min(1, ranking.shape[0])
                 print(ranking[:n,:])
                 print(possible_task_id[:n,:])
                 print(same[:n])
