@@ -344,7 +344,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                     x = x.cuda()
                     y = y.cuda()
                 if not self.first_task:
-                    # all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype)
+                    all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype)
                     all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
                 last_feature, _, prompt_loss = self.model(x, pen=True, train=True, use_prompt=True)
 
@@ -381,9 +381,10 @@ class ContrastivePrototypicalPrompt(Prompt):
             num_instances = prototype.shape[0]
             avg_var = list()
             for class_id, avg_var_for_each_class in self.avg_variance.items():
-                avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
+                if class_id < self.valid_out_dim:
+                    avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
             avg_var = torch.tensor(avg_var)
-            print(avg_var.shape[0], prototype.shape[0])
+            # print(avg_var.shape[0], prototype.shape[0])
             assert avg_var.shape[0] * self._num_anchor_value_prototype_per_class == prototype.shape[0]
             # stretch avg_var to be the same size as prototype.shape[0]
             avg_var = avg_var.repeat(self._num_anchor_value_prototype_per_class).unsqueeze(-1).cuda()
