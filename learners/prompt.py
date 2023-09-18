@@ -510,9 +510,11 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             x = random.randint(0, 2)
             if x == 0:
-                print(cos_sim[:2])
-                print(flatten_cos_sim[:2])
-                print(ranking[:2])
+                print(n_U[9])
+                print(q[0])
+                print(cos_sim[0])
+                print(flatten_cos_sim[0])
+                print(ranking[0])
                 print(f"Possible task id in 8 first rows")
                 n = min(8, ranking.shape[0])
                 print(ranking[:n,:])
