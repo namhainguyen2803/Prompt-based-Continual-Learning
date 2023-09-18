@@ -205,19 +205,18 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             last_features = torch.cat(list_last_feature, dim=0)
             outputs = torch.cat(list_output, dim=0)
-            if use_prompt:
-                cluster_algorithm = KMeans(num_classes=self._num_anchor_value_prototype_per_class)
-            else:
-                cluster_algorithm = KMeans(num_classes=self._num_anchor_key_prototype_per_class)
+            print(f"last_feature of class 9: {last_features[outputs == 9]}")
             uni_output = sorted(torch.unique(outputs).tolist())
             for class_id in uni_output:
+                if use_prompt:
+                    cluster_algorithm = KMeans(num_classes=self._num_anchor_value_prototype_per_class)
+                else:
+                    cluster_algorithm = KMeans(num_classes=self._num_anchor_key_prototype_per_class)
                 feature_set_for_class_id = last_features[outputs == class_id]
                 assert feature_set_for_class_id.ndim == 2, "feature_set_for_class_id.ndim != 2."
                 cluster_algorithm.fit(feature_set_for_class_id)
                 prototype = cluster_algorithm.get_centroids()
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
-                print(class_id)
-                print(prototype)
                 if use_prompt:
                     # row_variances = torch.var(feature_set_for_class_id, dim=1)
                     # self.avg_variance[class_id] = torch.mean(row_variances)

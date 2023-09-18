@@ -16,8 +16,8 @@ class KMeans():
         return self._centroids
 
     def _get_initial_centroids(self, features_matrix):
-        rand_indexes = np.random.randint(features_matrix.shape[0], size=self.num_classes)  # get random indexes
-        centroids = features_matrix[rand_indexes]
+        permute_tensor_range = torch.randperm(features_matrix.shape[0])[:self.num_classes]
+        centroids = features_matrix[permute_tensor_range]
         self._centroids = centroids.reshape(self.num_classes, features_matrix.shape[1])
 
     def _calculate_cluster_centers(self, features_matrix, cluster_labels):
