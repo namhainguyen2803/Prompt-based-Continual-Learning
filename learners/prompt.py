@@ -263,6 +263,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             batch_time = AverageMeter()
             batch_timer = Timer()
             all_previous_value_prototype = None
+            avg_var = None
             if not self.first_task:
                 # retrieve all perturbed prototype set in a single tensor
                 all_previous_value_prototype = list()
@@ -276,6 +277,19 @@ class ContrastivePrototypicalPrompt(Prompt):
                 # all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
                 print(f"Check value_prototype, having shape: {all_previous_value_prototype.shape}, "
                       f"requires grad: {all_previous_value_prototype.requires_grad}")
+
+                vect_dim = all_previous_value_prototype.shape[1]
+                num_instances = all_previous_value_prototype.shape[0]
+                avg_var = list()
+                for class_id, avg_var_for_each_class in self.avg_variance.items():
+                    if class_id < self.last_valid_out_dim:
+                        avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
+                avg_var = torch.tensor(avg_var)
+                # print(avg_var.shape[0], prototype.shape[0])
+                assert avg_var.shape[0] * self._num_anchor_value_prototype_per_class == all_previous_value_prototype.shape[0]
+                # stretch avg_var to be the same size as prototype.shape[0]
+                avg_var = avg_var.repeat(self._num_anchor_value_prototype_per_class).unsqueeze(-1).cuda()
+
             for epoch in range(self.config['schedule'][-1]):
                 self.epoch = epoch
                 if epoch > 0:
@@ -297,7 +311,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                     #     sample_all_previous_value_prototype = all_previous_value_prototype[sampled_indices]
                     # else:
                     #     sample_all_previous_value_prototype = None
-                    loss = self.update_model(x, y, all_previous_value_prototype)
+                    loss = self.update_model(x, y, all_previous_value_prototype, avg_var)
                     # print(loss)
                     # measure elapsed time
                     batch_time.update(batch_timer.toc())
@@ -356,10 +370,11 @@ class ContrastivePrototypicalPrompt(Prompt):
                 total_element = x.shape[0]
             return total_loss / total_element
 
-    def update_model(self, inputs, targets, all_previous_value_prototype=None):
+    def update_model(self, inputs, targets, all_previous_value_prototype=None, avg_var=None):
         # logits
         if not self.first_task:
-            all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype)
+            if avg_var is not None and all_previous_value_prototype is not None:
+                all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype, avg_var)
             all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
         last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
 
@@ -375,19 +390,19 @@ class ContrastivePrototypicalPrompt(Prompt):
 
         return total_loss.detach()
 
-    def _perturb_value_prototype(self, prototype):
+    def _perturb_value_prototype(self, prototype, avg_var):
         with torch.no_grad():
             vect_dim = prototype.shape[1]
             num_instances = prototype.shape[0]
-            avg_var = list()
-            for class_id, avg_var_for_each_class in self.avg_variance.items():
-                if class_id < self.last_valid_out_dim:
-                    avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
-            avg_var = torch.tensor(avg_var)
-            # print(avg_var.shape[0], prototype.shape[0])
-            assert avg_var.shape[0] * self._num_anchor_value_prototype_per_class == prototype.shape[0]
-            # stretch avg_var to be the same size as prototype.shape[0]
-            avg_var = avg_var.repeat(self._num_anchor_value_prototype_per_class).unsqueeze(-1).cuda()
+            # avg_var = list()
+            # for class_id, avg_var_for_each_class in self.avg_variance.items():
+            #     if class_id < self.last_valid_out_dim:
+            #         avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
+            # avg_var = torch.tensor(avg_var)
+            # # print(avg_var.shape[0], prototype.shape[0])
+            # assert avg_var.shape[0] * self._num_anchor_value_prototype_per_class == prototype.shape[0]
+            # # stretch avg_var to be the same size as prototype.shape[0]
+            # avg_var = avg_var.repeat(self._num_anchor_value_prototype_per_class).unsqueeze(-1).cuda()
             mean = torch.zeros(vect_dim)
             covariance = torch.eye(vect_dim)
             gaussian_noise = torch.distributions.MultivariateNormal(mean, covariance).sample([num_instances]).cuda()
