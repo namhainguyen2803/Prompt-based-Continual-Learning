@@ -499,11 +499,15 @@ class ContrastivePrototypicalPrompt(Prompt):
             same[same > 1] = 1
 
             num_element_correct_task = torch.sum(same)
-            total_element = possible_task_id.shape[0]
-            # print(f"In task {ground_truth_task}, "
-            #       f"number of correct task: {num_element_correct_task} in {total_element} elements")
+
+            x = random.randint(1, 3)
+            if x == 3:
+                n = min(10, B)
+                print(possible_task_id[:n])
+                print(task[:n])
+
+            print(f"number of correct task: {num_element_correct_task} in {B} elements")
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
-            # print(f"shape of input: {input.shape}")
 
             inp = input.unsqueeze(0)
             input_repeat = inp.repeat(top_k, 1, 1, 1, 1)
@@ -535,7 +539,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             else:
                 output = max_likelihood_among_k_classes[:, task_in]
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
-            return acc, num_element_correct_task, total_element
+            return acc, num_element_correct_task, B
 
 
 def check_tensor_nan(tensor, tensor_name="a"):
