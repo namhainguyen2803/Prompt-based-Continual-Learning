@@ -376,7 +376,7 @@ class ContrastivePrototypicalPrompt(DualPrompt):
         self.task_id_bootstrap = True
         self.top_k = 3
 
-    def forward(self, x_query, l, x_block, train=False, task_id=None, possible_task_id=None):
+    def forward(self, x_query, l, x_block, train=False, task_id=None, possible_task_id=None, prompt_type="tuning"):
         # e prompts
         B, C = x_query.shape
         if not train:
@@ -398,11 +398,13 @@ class ContrastivePrototypicalPrompt(DualPrompt):
 
             # select prompts
             # Prefix prompt
-
-            i = int(self.e_p_length / 2)
-            Ek = P_[:, :i, :].reshape((B, -1, self.emb_d))
-            Ev = P_[:, i:, :].reshape((B, -1, self.emb_d))
-            p_return = [Ek, Ev]
+            if prompt_type == "prefix":
+                i = int(self.e_p_length / 2)
+                Ek = P_[:, :i, :].reshape((B, -1, self.emb_d))
+                Ev = P_[:, i:, :].reshape((B, -1, self.emb_d))
+                p_return = [Ek, Ev]
+            elif prompt_type == "tuning":
+                p_return = P_
 
         return p_return, 0, x_block
 

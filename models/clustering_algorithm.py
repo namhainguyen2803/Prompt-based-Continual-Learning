@@ -45,7 +45,6 @@ class KMeans():
             distance = self._get_euclidean_distances(centroids=self._centroids, datapoints=features_matrix)
             cluster_labels = torch.argmin(distance, dim=0)
             self._calculate_cluster_centers(features_matrix, cluster_labels)
-
             if torch.max(torch.abs((self._centroids - old_centroids) / old_centroids)) < self._tol:
                 break
 
