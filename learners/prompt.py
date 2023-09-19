@@ -503,9 +503,9 @@ class ContrastivePrototypicalPrompt(Prompt):
             # x = random.randint(1, 2)
             # if x == 3:
             # n = min(10, B)
-            print(possible_task_id)
-            print(task)
-            print(f"number of correct task: {num_element_correct_task} in {B} elements")
+            # print(possible_task_id)
+            # print(task)
+            # print(f"number of correct task: {num_element_correct_task} in {B} elements")
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
 
             inp = input.unsqueeze(0)
