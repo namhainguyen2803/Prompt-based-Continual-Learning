@@ -33,5 +33,5 @@ class MLP(nn.Module):
         return x
 
 def EmbeddingProjection():
-    model = MLP(in_feature=768, hidden_features=[2048, 2048, 2048], out_feature=768, act_layer=nn.ReLU, drop=0.)
+    model = MLP(in_feature=768, hidden_features=[2048, 2048], out_feature=768, act_layer=nn.ReLU, drop=0.)
     return model
