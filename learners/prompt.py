@@ -168,7 +168,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.first_task = True
 
         self.verbose = True
-        self.print_every = 1
+        self.print_every = 5
 
     def _create_criterion_fn(self):
         self.criterion_fn = ContrastivePrototypicalLoss(temperature=0.6, reduction="mean")
