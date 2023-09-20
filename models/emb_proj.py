@@ -31,7 +31,7 @@ class MLP(nn.Module):
     def forward(self, x):
         #x.requires_grad = True
         x = checkpoint_sequential(functions=self.module_list, 
-                                  segments=1, 
+                                  segments=2, 
                                   input=x)
         return x
 
