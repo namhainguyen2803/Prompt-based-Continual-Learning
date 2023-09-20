@@ -333,7 +333,7 @@ class Checker():
     def check_untouched(self, learner, task_id):
         model = learner.model
         prompt = model.prompt
-        for l in prompt.self.e_layers:
+        for l in prompt.e_layers:
             prev_learner_prompt = getattr(prompt, f'e_p_{l}')
             prev_prompt = self.prompt_dict[l]
             diff = (prev_learner_prompt - prev_prompt)[:task_id]
