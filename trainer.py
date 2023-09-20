@@ -152,7 +152,6 @@ class Trainer:
             os.makedirs(temp_dir)
 
         # for each task
-        check_prompt = Checker()
         for i in range(self.max_task):
 
             # save current task index
