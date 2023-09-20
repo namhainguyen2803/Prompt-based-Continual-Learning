@@ -215,7 +215,7 @@ class Trainer:
             # learn
             avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader)
 
-            if i > 0:
+            if i > 0: # check for previous prompt
                 check_prompt.check_untouched(self.learner, i)
             # save prompt
             # self.learner.save_prompt(prompt_save_dir)
@@ -326,7 +326,7 @@ class Checker():
     def save_previous_prompt(self, learner):
         model = learner.model
         prompt = model.prompt
-        for l in prompt.self.e_layers:
+        for l in prompt.e_layers:
             prev_learner_prompt = getattr(prompt, f'e_p_{l}')
             self.prompt_dict[l] = copy.deepcopy(prev_learner_prompt)
 
