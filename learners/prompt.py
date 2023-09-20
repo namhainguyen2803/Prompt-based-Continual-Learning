@@ -540,6 +540,25 @@ class ContrastivePrototypicalPrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc, num_element_correct_task, B
 
+    def save_prompt(self, filename):
+        prompt_dict = dict()
+        prompt = self.model.prompt
+        for l in prompt.e_layers:
+            p = getattr(prompt, f'e_p_{l}')
+            prompt_dict[l] = p
+
+        self.log('=> Saving class model to:', filename)
+        torch.save(prompt_dict, filename + 'class.pth')
+        self.log('=> Save Done')
+
+    def load_prompt(self, filename):
+        prompt_dict = torch.load(filename + 'class.pth')
+        prompt = self.model.prompt
+        for l in prompt.e_layers:
+            setattr(prompt, f'e_p_{l}', prompt_dict[l])
+        self.log('=> Load Done')
+
+
 
 def check_tensor_nan(tensor, tensor_name="a"):
     has_nan = torch.isnan(tensor).any().item()
