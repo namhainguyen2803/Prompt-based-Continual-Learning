@@ -29,7 +29,7 @@ class MLP(nn.Module):
                 self.net.pop(final_act)
         self.module_list = [module for k, module in self.net.items()]
     def forward(self, x):
-        x.requires_grad = True
+        #x.requires_grad = True
         x = checkpoint_sequential(functions=self.module_list, 
                                   segments=1, 
                                   input=x)
