@@ -228,7 +228,6 @@ class VisionTransformer(nn.Module):
 
             if prompt is not None:
                 if train:
-                    print(i)
                     p_list, loss, x = prompt(q, i, x, train=True, task_id=task_id, possible_task_id=possible_task_id)
                     prompt_loss += loss
                 else:
