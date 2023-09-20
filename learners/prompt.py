@@ -500,12 +500,6 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             num_element_correct_task = torch.sum(same)
 
-            # x = random.randint(1, 2)
-            # if x == 3:
-            # n = min(10, B)
-            # print(possible_task_id)
-            # print(task)
-            # print(f"number of correct task: {num_element_correct_task} in {B} elements")
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
 
             inp = input.unsqueeze(0)
@@ -539,24 +533,6 @@ class ContrastivePrototypicalPrompt(Prompt):
                 output = max_likelihood_among_k_classes[:, task_in]
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc, num_element_correct_task, B
-
-    def save_prompt(self, filename):
-        prompt_dict = dict()
-        prompt = self.model.prompt
-        for l in prompt.e_layers:
-            p = getattr(prompt, f'e_p_{l}')
-            prompt_dict[l] = p
-
-        self.log('=> Saving class model to:', filename)
-        torch.save(prompt_dict, filename + 'class.pth')
-        self.log('=> Save Done')
-
-    def load_prompt(self, filename):
-        prompt_dict = torch.load(filename + 'class.pth')
-        prompt = self.model.prompt
-        for l in prompt.e_layers:
-            setattr(prompt, f'e_p_{l}', prompt_dict[l])
-        self.log('=> Load Done')
 
 
 

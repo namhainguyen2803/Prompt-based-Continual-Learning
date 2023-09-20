@@ -203,23 +203,11 @@ class Trainer:
                                      num_workers=self.workers)
             model_save_dir = self.model_top_dir + '/models/repeat-' + str(self.seed + 1) + '/task-' + self.task_names[
                 i] + '/'
-            # prompt_save_dir = self.model_top_dir + '/prompts/repeat-' + str(self.seed + 1) + '/task-' + self.task_names[
-            #     i] + '/'
             if not os.path.exists(model_save_dir):
                 os.makedirs(model_save_dir)
-            # if not os.path.exists(prompt_save_dir):
-            #     os.makedirs(prompt_save_dir)
-            if i > 0:
-                check_prompt.save_previous_prompt(self.learner)
 
             # learn
             avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader)
-
-            if i > 0: # check for previous prompt
-                check_prompt.check_untouched(self.learner, i)
-            # save prompt
-            # self.learner.save_prompt(prompt_save_dir)
-            # save model
             self.learner.save_model(model_save_dir)
 
             # evaluate acc
@@ -316,33 +304,3 @@ class Trainer:
         avg_metrics['acc'] = self.summarize_acc(avg_metrics['acc'], metric_table['acc'], metric_table_local['acc'])
 
         return avg_metrics
-
-
-class Checker():
-
-    def __init__(self):
-        self.prompt_dict = dict()
-
-    def save_previous_prompt(self, learner):
-        model = learner.model
-        prompt = model.prompt
-        for l in prompt.e_layers:
-            prev_learner_prompt = getattr(prompt, f'e_p_{l}')
-            self.prompt_dict[l] = copy.deepcopy(prev_learner_prompt)
-
-    def check_untouched(self, learner, task_id):
-        model = learner.model
-        prompt = model.prompt
-        for l in prompt.e_layers:
-            prev_learner_prompt = getattr(prompt, f'e_p_{l}')
-            prev_prompt = self.prompt_dict[l]
-            diff = (prev_learner_prompt - prev_prompt)[:task_id]
-            total_diff = torch.sum(torch.abs(diff))
-            print(f"Task id: {task_id}, in layer {l}, prompt difference: {total_diff}")
-
-
-def check_previous_prompt_untouched(learner, current_task):
-    model = learner.model
-    prompt = model.prompt
-    for l in prompt.self.e_layers:
-        prev_prompt = getattr(prompt, f'e_p_{l}')
