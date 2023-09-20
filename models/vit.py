@@ -98,24 +98,27 @@ class Attention(nn.Module):
         if register_hook:
             self.save_attention_map(attn)
             attn.register_hook(self.save_attn_gradients)        
-        print(attn.shape, v.shape)
+        # print(attn.shape, v.shape)
+        # attn.shape == ([64, 12, 197, 197]); v.shape == ([64, 12, 197, 64])
         if prompt_type == "prefix":
             x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         elif prompt_type == "tuning":
             x = (attn @ v).transpose(1, 2).reshape(B, N + prompt_length, C)
-            x = x[:, prompt_length:, :]
+            # x = x[:, prompt_length:, :]
             # x = torch.cat((x[:,0,:], x[:,(prompt_length+1):,:]), dim=1) # cut down indices where prompt is located
-            assert x.shape == (B, N, C), "x.shape != (B, N, C)"
         # if prefix
         # shape(attn @ v) == (B, self.num_heads, N, N + self.top_k * i) @ ..
         # ..(B, self.num_heads, N + self.top_k * i, C // self.num_heads)
         # == (B, self.num_heads, N, C // self.num_heads)
-
         # elif tuning:
         # shape(attn @ v) == (B, self.num_heads, N + Lp, N + Lp) @ (B, self.num_heads, N + Lp, C // self.num_heads)
         # == (B, self.num_heads, N + Lp, C // self.num_heads)
         x = self.proj(x)
         x = self.proj_drop(x)
+        if prompt_type == "tuning":
+            x = x[:, prompt_length:, :]
+
+        assert x.shape == (B, N, C), "x.shape != (B, N, C)"
         return x
 
 
