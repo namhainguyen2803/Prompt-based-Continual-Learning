@@ -233,7 +233,8 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = self._update_prototype_set(prototype_set=self.value_prototype, train_loader=train_loader,
                                                           use_prompt=True)
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True, need_acc=False):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir=None,
+                    prototype_save_dir=None, val_loader=None, need_loss=True, need_acc=False):
         print("##### Attempt to update key prototype set. #####")
         self._update_key_prototype(train_loader)
         print("##### Finish updating key prototype set. #####")
@@ -242,18 +243,20 @@ class ContrastivePrototypicalPrompt(Prompt):
         print("Reset MLP neck.")
         # learn prompt
         print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
-        self._learn_batch(train_loader, train_dataset, model_save_dir, val_loader=val_loader, need_loss=need_loss)
+        self._learn_batch(train_loader, train_dataset, model_save_dir=model_save_dir,
+                          prototype_save_dir=prototype_save_dir, val_loader=val_loader, need_loss=need_loss)
         print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
         print("##### Attempt to update value prototype set. #####")
         self._update_value_prototype(train_loader)
         print("##### Finish updating value prototype set. #####")
 
-    def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True):
+    def _learn_batch(self, train_loader, train_dataset, model_save_dir=None, prototype_save_dir=None, val_loader=None, need_loss=True):
         # try to load model
         need_train = True
         if not self.overwrite:
             try:
                 self.load_model(model_save_dir)
+                self.load_prototype(prototype_save_dir)
                 need_train = False
             except:
                 print("Cannot load model")
@@ -540,23 +543,19 @@ class ContrastivePrototypicalPrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc, num_element_correct_task, B
 
-    def save_prompt(self, filename):
-        prompt_dict = dict()
-        prompt = self.model.prompt
-        for l in prompt.e_layers:
-            p = getattr(prompt, f'e_p_{l}')
-            prompt_dict[l] = p
+    def save_prototype(self, filename):
+        prototype = dict()
+        prototype["key"] = copy.deepcopy(self.key_prototype)
+        prototype["value"] = copy.deepcopy(self.value_prototype)
+        self.log('=> Saving class prototype to:', filename)
+        torch.save(prototype, filename + 'class.pth')
+        self.log('=> Save Prototype Done')
 
-        self.log('=> Saving class model to:', filename)
-        torch.save(prompt_dict, filename + 'class.pth')
-        self.log('=> Save Done')
-
-    def load_prompt(self, filename):
-        prompt_dict = torch.load(filename + 'class.pth')
-        prompt = self.model.prompt
-        for l in prompt.e_layers:
-            setattr(prompt, f'e_p_{l}', prompt_dict[l])
-        self.log('=> Load Done')
+    def load_prototype(self, filename):
+        prototype = torch.load(filename + 'class.pth')
+        self.key_prototype = prototype["key"]
+        self.value_prototype = prototype["value"]
+        self.log('=> Load Prototype Done')
 
 
 
