@@ -21,6 +21,7 @@ from models.vit import Mlp
 from .CPL import ContrastivePrototypicalLoss
 from models.emb_proj import EmbeddingProjection
 from models.clustering_algorithm import KMeans
+import bitsandbytes as bnb
 
 
 class Prompt(NormalNN):
@@ -80,7 +81,7 @@ class Prompt(NormalNN):
             optimizer_arg["betas"] = (0.9, 0.999)
 
         # create optimizers
-        self.optimizer = torch.optim.__dict__[self.config['optimizer']](**optimizer_arg)
+        self.optimizer = bnb.optim.__dict__[self.config['optimizer']+'8bit'](**optimizer_arg)
 
         # create schedules
         if self.schedule_type == 'cosine':
