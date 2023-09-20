@@ -5,6 +5,7 @@ import models
 from utils.metric import accuracy, AverageMeter, Timer
 import numpy as np
 from utils.schedulers import CosineSchedule
+import bitsandbytes as bnb
 
 class NormalNN(nn.Module):
     '''
@@ -260,7 +261,7 @@ class NormalNN(nn.Module):
             optimizer_arg["betas"] = (0.9, 0.999)
 
         # create optimizers
-        self.optimizer = torch.optim.__dict__[self.config['optimizer']](**optimizer_arg)
+        self.optimizer = bnb.optim.__dict__[self.config['optimizer'+'8bit']](**optimizer_arg)
         
         # create schedules
         if self.schedule_type == 'cosine':

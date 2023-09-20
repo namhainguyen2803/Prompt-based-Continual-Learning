@@ -1,0 +1,37 @@
+DW: false
+batch_size: 64
+config: configs/cifar-100_prompt.yaml
+dataroot: data
+dataset: CIFAR100
+debug_mode: 0
+first_split_size: 10
+gpuid:
+- 0
+learner_name: ContrastivePrototypicalPrompt
+learner_type: prompt
+log_dir: outputs/cifar-100/10-task/cpp
+lr: 0.001
+max_task: -1
+memory: 0
+model_name: vit_pt_imnet
+model_type: zoo
+momentum: 0.9
+optimizer: AdamW
+oracle_flag: false
+other_split_size: 10
+overwrite: 0
+prompt_param:
+- 10.0
+- 2.0
+- -1.0
+rand_split: true
+repeat: 1
+schedule:
+- 2
+schedule_type: cosine
+temp: 2.0
+train_aug: true
+upper_bound_flag: false
+validation: false
+weight_decay: 0
+workers: 4

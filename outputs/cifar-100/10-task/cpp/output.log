@@ -1,0 +1,15 @@
+************************************
+* STARTING TRIAL 1
+************************************
+Files already downloaded and verified
+====================== 1 =======================
+Incremental class: Old valid output dimension: 0
+Incremental class: New Valid output dimension: 10
+##### Attempt to update key prototype set. #####
+##### Finish updating key prototype set. #####
+Reset MLP neck.
+##### Attempt to learn batch in task id: 0. #####
+Cannot load model
+Optimizer is reset!
+*****************************************
+LR: 0.001

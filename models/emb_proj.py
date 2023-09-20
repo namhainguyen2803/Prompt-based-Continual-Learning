@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from torch.utils.checkpoint import checkpoint_sequential
 
 class MLP(nn.Module):
     def __init__(self, in_feature=28*28, hidden_features=[256], out_feature=None, act_layer=nn.ReLU, drop=0.):
@@ -26,10 +27,12 @@ class MLP(nn.Module):
             if idx == len(net_features) - 2: # last layer, no need activation function
                 final_act = act_name
                 self.net.pop(final_act)
-
+        self.module_list = [module for k, module in self.net.items()]
     def forward(self, x):
-        for key, module in self.net.items():
-            x = module(x)
+        x.requires_grad = True
+        x = checkpoint_sequential(functions=self.module_list, 
+                                  segments=1, 
+                                  input=x)
         return x
 
 def EmbeddingProjection():
