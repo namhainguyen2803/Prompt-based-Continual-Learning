@@ -69,8 +69,8 @@ class Attention(nn.Module):
         # C is embedding dimension
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         # qkv shape == (3, B, self.num_heads, N, C // self.num_heads)
-        q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
-
+        q, k, v = qkv[0], qkv[1], qkv[2]   # shape of each == (B, self.num_heads, N, C // self.num_heads)
+        prompt_length = 0
         if prompt is not None:
             if prompt_type == "prefix":
                 pk, pv = prompt
@@ -79,23 +79,41 @@ class Attention(nn.Module):
                 k = torch.cat((pk,k), dim=2) # shape == (B, self.num_heads, N + self.top_k * i, C // self.num_heads)
                 v = torch.cat((pv,v), dim=2) # shape == (B, self.num_heads, N + self.top_k * i, C // self.num_heads)
             elif prompt_type == "tuning":
+                prompt_length = prompt.shape[1]
                 prompt = prompt.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-                k = torch.cat((prompt, k), dim=2)
-                v = torch.cat((prompt, v), dim=2)
-                q = torch.cat((prompt, q), dim=2)
+                k = torch.cat((prompt, k), dim=2) # shape == (B, self.num_heads, N + Lp, C // self.num_heads)
+                v = torch.cat((prompt, v), dim=2) # shape == (B, self.num_heads, N + Lp, C // self.num_heads)
+                q = torch.cat((prompt, q), dim=2) # shape == (B, self.num_heads, N + Lp, C // self.num_heads)
         attn = (q @ k.transpose(-2, -1)) * self.scale
+        # if prefix:
         # q @ k.transpose(-2, -1) having shape == (B, self.num_heads, N, N + self.top_k * i)
+        # elif tuning:
+        # q @ k.transpose(-2, -1) having shape == (B, self.num_heads, N + Lp, N + Lp)
         attn = attn.softmax(dim=-1) # shape == (B, self.num_heads, N, N + self.top_k * i)
+        # if prefix: attn.shape == (B, self.num_heads, N, N + self.top_k * i)
+        # elif tuning: attn.shape == (B, self.num_heads, N + Lp, N + Lp)
+
         attn = self.attn_drop(attn)
-                
+
         if register_hook:
             self.save_attention_map(attn)
             attn.register_hook(self.save_attn_gradients)        
-
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        print(attn.shape, v.shape)
+        if prompt_type == "prefix":
+            x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        elif prompt_type == "tuning":
+            x = (attn @ v).transpose(1, 2).reshape(B, N + prompt_length, C)
+            x = x[:, prompt_length:, :]
+            # x = torch.cat((x[:,0,:], x[:,(prompt_length+1):,:]), dim=1) # cut down indices where prompt is located
+            assert x.shape == (B, N, C), "x.shape != (B, N, C)"
+        # if prefix
         # shape(attn @ v) == (B, self.num_heads, N, N + self.top_k * i) @ ..
         # ..(B, self.num_heads, N + self.top_k * i, C // self.num_heads)
         # == (B, self.num_heads, N, C // self.num_heads)
+
+        # elif tuning:
+        # shape(attn @ v) == (B, self.num_heads, N + Lp, N + Lp) @ (B, self.num_heads, N + Lp, C // self.num_heads)
+        # == (B, self.num_heads, N + Lp, C // self.num_heads)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
@@ -194,7 +212,7 @@ class VisionTransformer(nn.Module):
 
         # class token, basically this line of code is used for copycatting class token to each instance in the batch
         # there is only unique class token, meaning class_token is shared among instances
-        cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
+        cls_tokens = self.cls_token.expand(B, -1, -1)
         # embed class_token to flatten_patches
         x = torch.cat((cls_tokens, patch_x), dim=1)
         # add positional embedding to flatten_patches
