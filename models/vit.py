@@ -64,26 +64,34 @@ class Attention(nn.Module):
     
     def forward(self, x, register_hook=False, prompt=None, prompt_type="tuning"):
         B, N, C = x.shape
+        prompt_length = 0
         # B is number of batch size
         # N is number of feature vectors (number of patches sub images + 1)
-        # C is embedding dimension
+        # C is embedding
+        if prompt is not None and prompt_type == "tuning":
+            # C == prompt.shape[2]
+            prompt_length = prompt.shape[1]
+            x = torch.cat((prompt, x), dim=1) # shape == (B, N + L_p, C)
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        # qkv shape == (3, B, self.num_heads, N, C // self.num_heads)
-        q, k, v = qkv[0], qkv[1], qkv[2]   # shape of each == (B, self.num_heads, N, C // self.num_heads)
-        prompt_length = 0
-        if prompt is not None:
-            if prompt_type == "prefix":
-                pk, pv = prompt
-                pk = pk.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-                pv = pv.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-                k = torch.cat((pk,k), dim=2) # shape == (B, self.num_heads, N + self.top_k * i, C // self.num_heads)
-                v = torch.cat((pv,v), dim=2) # shape == (B, self.num_heads, N + self.top_k * i, C // self.num_heads)
-            elif prompt_type == "tuning":
-                prompt_length = prompt.shape[1]
-                prompt = prompt.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-                k = torch.cat((prompt, k), dim=2) # shape == (B, self.num_heads, N + Lp, C // self.num_heads)
-                v = torch.cat((prompt, v), dim=2) # shape == (B, self.num_heads, N + Lp, C // self.num_heads)
-                q = torch.cat((prompt, q), dim=2) # shape == (B, self.num_heads, N + Lp, C // self.num_heads)
+        # if prefix: qkv shape == (3, B, self.num_heads, N, C // self.num_heads)
+        # elif tuning: qkv shape == (3, B, self.num_heads, N + L_p, C // self.num_heads)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        # if prefix: shape of each == (B, self.num_heads, N, C // self.num_heads)
+        # elif tuning: shape of each == (B, self.num_heads, N + L_p, C // self.num_heads)
+
+        if prompt is not None and prompt_type == "prefix":
+            pk, pv = prompt
+            pk = pk.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+            pv = pv.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+            k = torch.cat((pk,k), dim=2) # shape == (B, self.num_heads, N + self.top_k * i, C // self.num_heads)
+            v = torch.cat((pv,v), dim=2) # shape == (B, self.num_heads, N + self.top_k * i, C // self.num_heads)
+            # elif prompt_type == "tuning":
+            #     prompt_length = prompt.shape[1]
+            #     prompt = prompt.reshape(B, prompt_length, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+            #     k = torch.cat((prompt, k), dim=2) # shape == (B, self.num_heads, N + Lp, C // self.num_heads)
+            #     v = torch.cat((prompt, v), dim=2) # shape == (B, self.num_heads, N + Lp, C // self.num_heads)
+            #     q = torch.cat((prompt, q), dim=2) # shape == (B, self.num_heads, N + Lp, C // self.num_heads)
+
         attn = (q @ k.transpose(-2, -1)) * self.scale
         # if prefix:
         # q @ k.transpose(-2, -1) having shape == (B, self.num_heads, N, N + self.top_k * i)
