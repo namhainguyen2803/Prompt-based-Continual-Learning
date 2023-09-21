@@ -30,9 +30,8 @@ class MLP(nn.Module):
         self.module_list = [module for k, module in self.net.items()]
 
     def forward(self, x):
-        x = checkpoint_sequential(functions=self.module_list, 
-                                  segments=1 , 
-                                  input=x)
+        for key, module in self.net.items():
+            x = module(x)
         return x
 
 def EmbeddingProjection():
