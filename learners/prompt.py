@@ -4,6 +4,7 @@ import random
 
 import torch
 import torch.nn as nn
+from torch import autograd
 from torch.nn import functional as F
 from types import MethodType
 import models
@@ -240,13 +241,37 @@ class ContrastivePrototypicalPrompt(Prompt):
         # re-initialize MLP neck
         self._reset_MLP_neck()
         print("Reset MLP neck.")
+        if self.model.task_id > 0:
+            print(f"Learning mask for task id: {self.model.task_id + 1}")
+            self.learning_mask(train_loader)
+        print(f"##### Attempt to learn batch in task id: {self.model.task_id + 1}. #####")
         # learn prompt
-        print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
         self._learn_batch(train_loader, train_dataset, model_save_dir, val_loader=val_loader, need_loss=need_loss)
         print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
         print("##### Attempt to update value prototype set. #####")
         self._update_value_prototype(train_loader)
         print("##### Finish updating value prototype set. #####")
+
+    def learning_mask(self, train_loader):
+        classifier = EmbeddingProjection(in_feature=768, hidden_features=[2048], out_feature=10).cuda()
+        mask_criterion = nn.CrossEntropyLoss(reduction='mean')
+        list_param = self.model.prompt._create_learnable_mask(self.model.task_id)
+        mask_opt = torch.optim.Adam(list_param, lr=0.001)
+        for t in range(10):
+            for i, (x, y, task) in enumerate(train_loader):
+                self.model.train()
+                if self.gpu:
+                    x = x.cuda()
+                    y = y.cuda()
+            last_feature, _, prompt_loss = self.model(x, learn_mask=True)
+            check_tensor_nan(last_feature, "last_feature")
+            logits = classifier(last_feature)
+            total_loss = mask_criterion(logits, y.long())
+            # step
+            mask_opt.zero_grad()
+            total_loss.backward()
+            mask_opt.step()
+        self.model.prompt.initialize_prompt(self.model.task_id)
 
     def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True):
         # try to load model
@@ -533,8 +558,6 @@ class ContrastivePrototypicalPrompt(Prompt):
                 output = max_likelihood_among_k_classes[:, task_in]
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc, num_element_correct_task, B
-
-
 
 def check_tensor_nan(tensor, tensor_name="a"):
     has_nan = torch.isnan(tensor).any().item()

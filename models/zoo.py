@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 import torchvision.models as models
+from torch import autograd
 from torch.autograd import Variable
 from .vit import VisionTransformer
 from timm.models import vit_base_patch16_224
@@ -408,6 +409,86 @@ class ContrastivePrototypicalPrompt(DualPrompt):
 
         return p_return, 0, x_block
 
+class MaskedPrompt(ContrastivePrototypicalPrompt):
+    def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
+        super().__init__(emb_d, n_tasks, prompt_param, key_dim)
+
+    def _init_smart(self, emb_d, prompt_param):
+        # prompt locations
+        self.e_layers = [0, 1, 2, 3]
+        self.g_layers = []
+
+        # prompt pool size
+        self.g_p_length = int(prompt_param[2])
+        self.e_p_length = int(prompt_param[1])
+        self.e_pool_size = int(prompt_param[0])
+        self.list_prompt = None
+        self.task_id_bootstrap = True
+        self.sparsity = 0.4
+
+    def _create_learnable_mask(self, task_id):
+        assert task_id > 0, "task_id == 0."
+        self.list_prompt = list()
+        list_param = list()
+        mask_function = MaskedParameter.apply
+        for l in self.e_layers:
+            prev_prompt = getattr(self, f'e_p_{l}')[:task_id].detach().clone()  # (num_task_id, L_p, emb_d)
+            assert prev_prompt.grad == False
+            prev_prompt = prev_prompt.reshape(-1, prev_prompt.shape[2])  # (num_task_id * L_p, emb_d)
+            prompt_mask = nn.Parameter(torch.randn(prev_prompt.shape[0], 1))
+            list_param.append(prompt_mask)
+            mask = mask_function(prompt_mask, self.sparsity)
+            prev_prompt = mask * prev_prompt
+            non_zero_rows = torch.any(prev_prompt != 0, dim=1)
+            result_tensor = prev_prompt[non_zero_rows]
+            self.list_prompt.append(result_tensor)
+        return list_param
+
+    def initialize_prompt(self, task_id):
+        for l in self.e_layers:
+            prev_prompt = self.list_prompt[l]
+            prev_prompt.grad = False
+            p = getattr(self, f'e_p_{l}')[task_id]
+            p[:prev_prompt.shape[0], :] = prev_prompt
+            setattr(self, f'e_p_{l}', p)
+
+    def forward(self, x_query, l, x_block, train=False, task_id=None, possible_task_id=None,
+                prompt_type="tuning", learn_mask=False):
+        if learn_mask:
+            assert self.list_prompt is not None
+            if l in self.e_layers:
+                return self.list_prompt[l], 0, x_block
+        else:
+            B, C = x_query.shape
+            if not train:
+                if possible_task_id is None:
+                    possible_task_id = torch.full((B, 1), task_id, dtype=torch.int64)
+            else:
+                assert task_id is not None, "In train mode, task_id cannot be None."
+            p_return = None
+            if l in self.e_layers:
+                B, C = x_query.shape
+                p = getattr(self, f'e_p_{l}')
+                if train:
+                    # no need cos-sim loss
+                    P_ = p[task_id].expand(B, -1, -1)
+                else:  # CPP in testing time, but differs than that of DualPrompt!
+                    assert possible_task_id.shape == (B, 1), "Wrong in class ContrastivePrototypicalPrompt(DualPrompt)."
+                    P_ = p[possible_task_id]
+                    P_ = P_.squeeze(1)
+
+                # select prompts
+                # Prefix prompt
+                if prompt_type == "prefix":
+                    i = int(self.e_p_length / 2)
+                    Ek = P_[:, :i, :].reshape((B, -1, self.emb_d))
+                    Ev = P_[:, i:, :].reshape((B, -1, self.emb_d))
+                    p_return = [Ek, Ev]
+                elif prompt_type == "tuning":
+                    p_return = P_
+
+            return p_return, 0, x_block
+
 
 # note - ortho init has not been found to help l2p/dual prompt
 def tensor_prompt(a, b, c=None, ortho=False):
@@ -454,6 +535,8 @@ class ViTZoo(nn.Module):
             self.prompt = CodaPrompt(768, prompt_param[0], prompt_param[1])
         elif self.prompt_flag == 'cpp':
             self.prompt = ContrastivePrototypicalPrompt(768, prompt_param[0], prompt_param[1])
+        elif self.prompt_flag == 'masked':
+            self.prompt = MaskedPrompt(768, prompt_param[0], prompt_param[1])
         else:
             self.prompt = None
 
@@ -468,16 +551,16 @@ class ViTZoo(nn.Module):
 
 
     # pen: get penultimate(final) features
-    def forward(self, x, pen=False, train=False, use_prompt=True, possible_task_id=None):
+    def forward(self, x, pen=False, train=False, use_prompt=True, possible_task_id=None, learn_mask=False):
         prompt_loss = 0
         if self.prompt is not None:
             q = self.retrieve_query_vector(x)
             if use_prompt:
                 out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id,
-                                             possible_task_id=possible_task_id)
+                                             possible_task_id=possible_task_id, learn_mask=learn_mask)
             else:
                 out, prompt_loss = self.feat(x, prompt=None, q=q, train=train, task_id=self.task_id,
-                                             possible_task_id=possible_task_id)
+                                             possible_task_id=possible_task_id, learn_mask=learn_mask)
             last_feature = out[:, 0, :]
         else:
             out, _ = self.feat(x)
@@ -500,3 +583,21 @@ class ViTZoo(nn.Module):
 
 def vit_pt_imnet(out_dim, prompt_flag='l2p', prompt_param=None):
     return ViTZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param)
+
+class MaskedParameter(autograd.Function):
+
+    @staticmethod
+    def forward(self, mask, sparsity):
+        out = mask.clone()
+        _, idx = mask.flatten().sort()
+        j = int((1 - sparsity) * mask.numel())
+
+        flat_out = out.flatten()
+        flat_out[idx[:j]] = 0
+        flat_out[idx[j:]] = 1
+
+        return out
+
+    @staticmethod
+    def backward(self, g):
+        return g, None

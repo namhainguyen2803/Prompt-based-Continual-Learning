@@ -32,6 +32,7 @@ class MLP(nn.Module):
             x = module(x)
         return x
 
-def EmbeddingProjection():
-    model = MLP(in_feature=768, hidden_features=[2048, 2048], out_feature=768, act_layer=nn.ReLU, drop=0.)
+def EmbeddingProjection(in_feature=768, hidden_features=[2048, 2048], out_feature=768, act_layer=nn.ReLU, drop=0.):
+    model = MLP(in_feature=in_feature, hidden_features=hidden_features, out_feature=out_feature,
+                act_layer=act_layer, drop=drop)
     return model

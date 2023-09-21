@@ -219,7 +219,8 @@ class VisionTransformer(nn.Module):
     def no_weight_decay(self):
         return {'pos_embed', 'cls_token'}
 
-    def forward(self, x, block_id_for_register_hook=-1, prompt=None, q=None, train=False, task_id=None, possible_task_id=None):
+    def forward(self, x, block_id_for_register_hook=-1, prompt=None, q=None, train=False,
+                task_id=None, possible_task_id=None, learn_mask=False):
         B = x.shape[0] # number of instances in a batch
         patch_x = self.patch_embed(x) # output of Embedding Patch layer
 
@@ -238,10 +239,12 @@ class VisionTransformer(nn.Module):
 
             if prompt is not None:
                 if train:
-                    p_list, loss, x = prompt(q, i, x, train=True, task_id=task_id, possible_task_id=possible_task_id)
+                    p_list, loss, x = prompt(q, i, x, train=True, task_id=task_id,
+                                             possible_task_id=possible_task_id, learn_mask=learn_mask)
                     prompt_loss += loss
                 else:
-                    p_list, _, x = prompt(q, i, x, train=False, task_id=task_id, possible_task_id=possible_task_id)
+                    p_list, _, x = prompt(q, i, x, train=False, task_id=task_id,
+                                          possible_task_id=possible_task_id, learn_mask=learn_mask)
             else:
                 p_list = None
             # if register_hook_for_block_id == -1 then no need to have register_hook for each Block

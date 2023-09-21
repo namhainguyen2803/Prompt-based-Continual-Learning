@@ -150,7 +150,7 @@ class NormalNN(nn.Module):
 
     def criterion(self, logits, targets, data_weights):
         loss_supervised = (self.criterion_fn(logits, targets.long()) * data_weights).mean()
-        return loss_supervised 
+        return loss_supervised
 
     def update_model(self, inputs, targets, target_scores = None, dw_force = None, kd_index = None):
         
