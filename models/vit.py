@@ -72,7 +72,9 @@ class Attention(nn.Module):
             # C == prompt.shape[2]
             prompt_length = prompt.shape[1]
             x = torch.cat((prompt, x), dim=1) # shape == (B, N + L_p, C)
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+            qkv = self.qkv(x).reshape(B, N + prompt_length, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        else:
+            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         # if prefix: qkv shape == (3, B, self.num_heads, N, C // self.num_heads)
         # elif tuning: qkv shape == (3, B, self.num_heads, N + L_p, C // self.num_heads)
         q, k, v = qkv[0], qkv[1], qkv[2]
