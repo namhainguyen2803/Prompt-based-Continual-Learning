@@ -4,3 +4,4 @@ argparse
 pyaml
 pillow
 opencv-python
+bitsandbytes
