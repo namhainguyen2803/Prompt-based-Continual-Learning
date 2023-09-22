@@ -437,7 +437,7 @@ class MaskedPrompt(ContrastivePrototypicalPrompt):
             print(l, prev_prompt.grad)
             assert prev_prompt.grad == None
             prev_prompt = prev_prompt.reshape(-1, prev_prompt.shape[2])  # (num_task_id * L_p, emb_d)
-            prompt_mask = nn.Parameter(torch.randn(prev_prompt.shape[0], 1))
+            prompt_mask = nn.Parameter(torch.randn(prev_prompt.shape[0], 1)).cuda()
             list_param.append(prompt_mask)
             mask = mask_function(prompt_mask, self.sparsity)
             prev_prompt = mask * prev_prompt

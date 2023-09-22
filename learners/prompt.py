@@ -234,10 +234,19 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = self._update_prototype_set(prototype_set=self.value_prototype, train_loader=train_loader,
                                                           use_prompt=True)
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True, need_acc=False):
-        print("##### Attempt to update key prototype set. #####")
-        self._update_key_prototype(train_loader)
-        print("##### Finish updating key prototype set. #####")
+    def learn_batch(self, train_loader, train_dataset, model_save_dir=None,
+                    prototype_save_dir=None, val_loader=None, need_loss=True, need_acc=False):
+
+        can_load_prototype = False
+        try:
+            self.load_prototype(prototype_save_dir)
+            print("Finish loading key prototype.")
+            can_load_prototype = True
+        except:
+            print("##### Attempt to update key prototype set. #####")
+            self._update_key_prototype(train_loader)
+            print("##### Finish updating key prototype set. #####")
+
         # re-initialize MLP neck
         self._reset_MLP_neck()
         print("Reset MLP neck.")
@@ -248,9 +257,13 @@ class ContrastivePrototypicalPrompt(Prompt):
         # learn prompt
         self._learn_batch(train_loader, train_dataset, model_save_dir, val_loader=val_loader, need_loss=need_loss)
         print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
-        print("##### Attempt to update value prototype set. #####")
-        self._update_value_prototype(train_loader)
-        print("##### Finish updating value prototype set. #####")
+
+        if can_load_prototype == False:
+            print("##### Attempt to update value prototype set. #####")
+            self._update_value_prototype(train_loader)
+            print("##### Finish updating value prototype set. #####")
+        else:
+            print("Finish loading key prototype.")
 
     def learning_mask(self, train_loader):
         classifier = EmbeddingProjection(in_feature=768, hidden_features=[2048], out_feature=10).cuda()
@@ -273,7 +286,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             mask_opt.step()
         self.model.prompt.initialize_prompt(self.model.task_id)
 
-    def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True):
+    def _learn_batch(self, train_loader, train_dataset, model_save_dir=None, val_loader=None, need_loss=True):
         # try to load model
         need_train = True
         if not self.overwrite:
@@ -558,6 +571,20 @@ class ContrastivePrototypicalPrompt(Prompt):
                 output = max_likelihood_among_k_classes[:, task_in]
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc, num_element_correct_task, B
+
+    def save_prototype(self, filename):
+        prototype = dict()
+        prototype["key"] = copy.deepcopy(self.key_prototype)
+        prototype["value"] = copy.deepcopy(self.value_prototype)
+        self.log('=> Saving class prototype to:', filename)
+        torch.save(prototype, filename + 'class.pth')
+        self.log('=> Save Prototype Done')
+
+    def load_prototype(self, filename):
+        prototype = torch.load(filename + 'class.pth')
+        self.key_prototype = prototype["key"]
+        self.value_prototype = prototype["value"]
+        self.log('=> Load Prototype Done')
 
 def check_tensor_nan(tensor, tensor_name="a"):
     has_nan = torch.isnan(tensor).any().item()
