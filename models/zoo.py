@@ -425,6 +425,7 @@ class MaskedPrompt(ContrastivePrototypicalPrompt):
         self.list_prompt = None
         self.task_id_bootstrap = True
         self.sparsity = 0.4
+        self.top_k = 3
 
     def _create_learnable_mask(self, task_id):
         assert task_id > 0, "task_id == 0."

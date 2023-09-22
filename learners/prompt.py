@@ -83,11 +83,11 @@ class Prompt(NormalNN):
         # create optimizers
         self.optimizer = torch.optim.__dict__[self.config['optimizer']](**optimizer_arg)
 
-        # create schedules
-        if self.schedule_type == 'cosine':
-            self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
-        elif self.schedule_type == 'decay':
-            self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
+        # # create schedules
+        # if self.schedule_type == 'cosine':
+        #     self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
+        # elif self.schedule_type == 'decay':
+        #     self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
 
     def create_model(self):
         pass
@@ -176,7 +176,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def create_model(self):
         cfg = self.config
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag='cpp',
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag='masked',
                                                                                prompt_param=self.prompt_param)
         return model
 
@@ -319,8 +319,8 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             for epoch in range(self.config['schedule'][-1]):
                 self.epoch = epoch
-                if epoch > 0:
-                    self.scheduler.step()
+                # if epoch > 0:
+                #     self.scheduler.step()
                 for param_group in self.optimizer.param_groups:
                     self.log('LR:', param_group['lr'])
                 batch_timer.tic()
