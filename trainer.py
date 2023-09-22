@@ -218,7 +218,7 @@ class Trainer:
             avg_train_time = self.learner.learn_batch(train_loader=train_loader, train_dataset=self.train_dataset,
                                                       model_save_dir=model_save_dir,
                                                       prototype_save_dir=prototype_save_dir,
-                                                      test_loader=test_loader)
+                                                      val_loader=test_loader)
 
             self.learner.save_model(model_save_dir)
             self.learner.save_prototype(prototype_save_dir)
