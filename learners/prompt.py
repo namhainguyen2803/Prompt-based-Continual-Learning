@@ -169,7 +169,8 @@ class ContrastivePrototypicalPrompt(Prompt):
 
         self.verbose = True
         self.print_every = 10
-        self.scaler = torch.cuda.amp.GradScaler()
+        
+        self.iters = 0
     def _create_criterion_fn(self):
         self.criterion_fn = ContrastivePrototypicalLoss(temperature=0.6, reduction="mean")
 
@@ -234,6 +235,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                                                           use_prompt=True)
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True, need_acc=False):
+        #Reset scaler
+        self.scaler = torch.cuda.amp.GradScaler(growth_interval=10)
         print("##### Attempt to update key prototype set. #####")
         self._update_key_prototype(train_loader)
         print("##### Finish updating key prototype set. #####")
@@ -250,6 +253,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True):
         # try to load model
+        self.iters = 0
         need_train = True
         if not self.overwrite:
             try:
@@ -300,6 +304,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                     self.log('LR:', param_group['lr'])
                 batch_timer.tic()
                 for i, (x, y, task) in enumerate(train_loader):
+                    self.iters+=1
                     # verify in train mode
                     self.model.train()
                     # send data to gpu
@@ -390,6 +395,8 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.scaler.scale(total_loss).backward()
         self.scaler.step(self.optimizer)
         self.scaler.update()
+        if self.scaler.get_growth_interval() != 2000 and self.iters > 1000:
+            self.scaler.set_growth_interval(2000)
         return total_loss.detach()
 
     def _perturb_value_prototype(self, prototype, avg_var):
