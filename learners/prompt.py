@@ -276,14 +276,15 @@ class ContrastivePrototypicalPrompt(Prompt):
                 if self.gpu:
                     x = x.cuda()
                     y = y.cuda()
-            last_feature, _, prompt_loss = self.model(x, learn_mask=True)
-            check_tensor_nan(last_feature, "last_feature")
-            logits = classifier(last_feature)
-            total_loss = mask_criterion(logits, y.long())
-            # step
-            mask_opt.zero_grad()
-            total_loss.backward()
-            mask_opt.step()
+                y = y - y.min()
+                last_feature, _, prompt_loss = self.model(x, learn_mask=True)
+                check_tensor_nan(last_feature, "last_feature")
+                logits = classifier(last_feature)
+                total_loss = mask_criterion(logits, y.long())
+                # step
+                mask_opt.zero_grad()
+                total_loss.backward()
+                mask_opt.step()
         self.model.prompt.initialize_prompt(self.model.task_id)
 
     def _learn_batch(self, train_loader, train_dataset, model_save_dir=None, val_loader=None, need_loss=True):
