@@ -456,10 +456,14 @@ class MaskedPrompt(ContrastivePrototypicalPrompt):
 
     def forward(self, x_query, l, x_block, train=False, task_id=None, possible_task_id=None,
                 prompt_type="tuning", learn_mask=False):
+        
         if learn_mask:
             assert self.list_prompt is not None
             if l in self.e_layers:
-                return self.list_prompt[l], 0, x_block
+                B, C = x_query.shape
+                P_ = self.list_prompt[l].expand(B, -1, -1)
+                return P_, 0, x_block
+
         else:
             B, C = x_query.shape
             if not train:
