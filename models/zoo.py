@@ -434,7 +434,8 @@ class MaskedPrompt(ContrastivePrototypicalPrompt):
         mask_function = MaskedParameter.apply
         for l in self.e_layers:
             prev_prompt = getattr(self, f'e_p_{l}')[:task_id].detach().clone()  # (num_task_id, L_p, emb_d)
-            assert prev_prompt.grad == False
+            print(l, prev_prompt.grad)
+            assert prev_prompt.grad == None
             prev_prompt = prev_prompt.reshape(-1, prev_prompt.shape[2])  # (num_task_id * L_p, emb_d)
             prompt_mask = nn.Parameter(torch.randn(prev_prompt.shape[0], 1))
             list_param.append(prompt_mask)

@@ -348,13 +348,13 @@ class ContrastivePrototypicalPrompt(Prompt):
                 if need_loss:
                     self.log(' * Loss {loss.avg:.3f} |'.format(loss=losses))
                     losses = AverageMeter()
-                    if self.verbose == True and epoch % self.print_every == 0:
-                        print(f"##### Validation time in epoch: {epoch} #####")
-                        self._update_value_prototype(train_loader)
-                        loss = self._calculate_validation_loss(val_loader, all_previous_value_prototype, avg_var)
-                        acc = self.validation(dataloader=val_loader, model=None, task_in=None, task_metric='acc', verbal=True)
-                        print(f"Accuracy in validation: {acc}, loss value: {loss}")
-                        print("##### End validation #####")
+                    # if self.verbose == True and epoch % self.print_every == 0:
+                    #     print(f"##### Validation time in epoch: {epoch} #####")
+                    #     self._update_value_prototype(train_loader)
+                    #     loss = self._calculate_validation_loss(val_loader, all_previous_value_prototype, avg_var)
+                    #     acc = self.validation(dataloader=val_loader, model=None, task_in=None, task_metric='acc', verbal=True)
+                    #     print(f"Accuracy in validation: {acc}, loss value: {loss}")
+                    #     print("##### End validation #####")
         self.model.eval()
         self.last_valid_out_dim = self.valid_out_dim
         self.first_task = False
