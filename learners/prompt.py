@@ -393,8 +393,12 @@ class ContrastivePrototypicalPrompt(Prompt):
         # step
         self.optimizer.zero_grad()
         self.scaler.scale(total_loss).backward()
+        
+        self.scaler.unscale_(self.optimizer)  # unscale to clip gradient
+        nn.utils.clip_grad_norm_(self.MLP_neck.parameters(), max_norm=1.0)
         self.scaler.step(self.optimizer)
         self.scaler.update()
+        
         if self.scaler.get_growth_interval() != 2000 and self.iters > 1000:
             self.scaler.set_growth_interval(2000)
         return total_loss.detach()
