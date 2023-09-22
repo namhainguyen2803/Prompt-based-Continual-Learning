@@ -269,7 +269,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         classifier = EmbeddingProjection(in_feature=768, hidden_features=[2048], out_feature=10).cuda()
         mask_criterion = nn.CrossEntropyLoss(reduction='mean')
         list_param = self.model.prompt._create_learnable_mask(self.model.task_id)
-        mask_opt = torch.optim.Adam(list_param, lr=0.001)
+        mask_opt = torch.optim.Adam([*list_param, *classifier.parameters()], lr=0.001)
         for t in range(10):
             for i, (x, y, task) in enumerate(train_loader):
                 self.model.train()
