@@ -169,7 +169,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
         self.verbose = True
         self.print_every = 10
-
+        self.scaler = torch.cuda.amp.GradScaler()
     def _create_criterion_fn(self):
         self.criterion_fn = ContrastivePrototypicalLoss(temperature=0.6, reduction="mean")
 
@@ -357,15 +357,16 @@ class ContrastivePrototypicalPrompt(Prompt):
                     all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype, avg_var)
                     all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
                     check_tensor_nan(all_previous_value_prototype, "all_previous_value_prototype (1)")
-                #with torch.cuda.amp.autocast():
-                last_feature, _ = self.model(x, pen=True, train=False,
-                                                        use_prompt=True, possible_task_id = task.reshape(-1, 1))
-                check_tensor_nan(last_feature, "last_feature")
-            
-                z_feature = self.MLP_neck(last_feature)
-                n_z_feature = nn.functional.normalize(z_feature, dim=1)
-                loss = self.criterion_fn(z_feature=n_z_feature, label=y,
-                                            previous_prototype=all_previous_value_prototype)
+                with torch.cuda.amp.autocast():
+                    last_feature, _ = self.model(x, pen=True, train=False,
+                                                            use_prompt=True, possible_task_id = task.reshape(-1, 1))
+                    check_tensor_nan(last_feature, "last_feature")
+                
+                    z_feature = self.MLP_neck(last_feature)
+                    n_z_feature = nn.functional.normalize(z_feature, dim=1)
+                    loss = self.criterion_fn(z_feature=n_z_feature, label=y,
+                                                previous_prototype=all_previous_value_prototype)
+                
                 total_loss += loss.detach()
                 total_element = x.shape[0]
             return total_loss / total_element
@@ -377,17 +378,17 @@ class ContrastivePrototypicalPrompt(Prompt):
                 all_previous_value_prototype = self._perturb_value_prototype(all_previous_value_prototype, avg_var)
             all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
             check_tensor_nan(all_previous_value_prototype, "all_previous_value_prototype")
-        #with torch.cuda.amp.autocast():
-        last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
-        check_tensor_nan(last_feature, "last_feature")
-        z_feature = self.MLP_neck(last_feature)
-        n_z_feature = nn.functional.normalize(z_feature, dim=1)
-        total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
-                                    previous_prototype=all_previous_value_prototype)
+        with torch.cuda.amp.autocast():
+            last_feature, _, prompt_loss = self.model(inputs, pen=True, train=True, use_prompt=True)
+            check_tensor_nan(last_feature, "last_feature")
+            z_feature = self.MLP_neck(last_feature)
+            n_z_feature = nn.functional.normalize(z_feature, dim=1)
+            total_loss = self.criterion_fn(z_feature=n_z_feature, label=targets,
+                                        previous_prototype=all_previous_value_prototype)
         # step
         self.optimizer.zero_grad()
-        total_loss.backward()
-        self.optimizer.step()
+        self.scaler.scale(total_loss).backward()
+        self.scaler.step(self.optimizer)
 
         return total_loss.detach()
 
