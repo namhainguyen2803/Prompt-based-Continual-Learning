@@ -389,7 +389,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.optimizer.zero_grad()
         self.scaler.scale(total_loss).backward()
         self.scaler.step(self.optimizer)
-
+        self.scaler.update()
         return total_loss.detach()
 
     def _perturb_value_prototype(self, prototype, avg_var):
