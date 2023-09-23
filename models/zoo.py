@@ -390,10 +390,7 @@ class ContrastivePrototypicalPrompt(DualPrompt):
             p = getattr(self, f'e_p_{l}')
             if train:  # CPP in training time, need to access to task-specific prompt
                 # no need cos-sim loss
-                prev_prompt = p[:task_id].detach().clone()
-                prev_prompt = prev_prompt.reshape(-1, prev_prompt.shape[2])
-                current_prompt = torch.cat((prev_prompt, p[task_id]), dim=0)
-                P_ = current_prompt.expand(B, -1, -1)
+                P_ = p[task_id].expand(B, -1, -1)
             else:  # CPP in testing time, but differs than that of DualPrompt!
                 assert possible_task_id.shape == (B, 1), "Wrong in class ContrastivePrototypicalPrompt(DualPrompt)."
                 P_ = p[possible_task_id]
