@@ -279,7 +279,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         for l in prompt.e_layers:
             real_mask = torch.randn(len_prev_prompt, 1, device='cuda')
             real_mask_param = nn.Parameter(real_mask)  # initialize real_mask
-            binary_mask_param = mask_function(mask=real_mask_param, sparsity=0.3)
+            binary_mask_param = mask_function(mask=real_mask_param, sparsity=3)
             list_param.append(binary_mask_param)
 
         mask_opt = torch.optim.Adam([*list_param, *classifier.parameters()], lr=0.001)
@@ -624,7 +624,7 @@ class MaskedParameter(autograd.Function):
     def forward(self, mask, sparsity):
         out = mask.clone()
         _, idx = mask.flatten().sort()
-        j = int((1 - sparsity) * mask.numel())
+        j = sparsity
         flat_out = out.flatten()
         flat_out[idx[:j]] = 0
         flat_out[idx[j:]] = 1
