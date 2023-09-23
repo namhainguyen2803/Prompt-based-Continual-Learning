@@ -621,6 +621,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         prototype = dict()
         prototype["key"] = copy.deepcopy(self.key_prototype)
         prototype["value"] = copy.deepcopy(self.value_prototype)
+        prototype["variance"] = copy.deepcopy(self.avg_variance)
         self.log('=> Saving class prototype to:', filename)
         torch.save(prototype, filename + 'class.pth')
         self.log('=> Save Prototype Done')
@@ -629,6 +630,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         prototype = torch.load(filename + 'class.pth')
         self.key_prototype = prototype["key"]
         self.value_prototype = prototype["value"]
+        self.avg_variance = prototype["variance"]
         self.log('=> Load Prototype Done')
 
 
