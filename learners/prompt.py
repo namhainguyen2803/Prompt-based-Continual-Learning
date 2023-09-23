@@ -269,6 +269,26 @@ class ContrastivePrototypicalPrompt(Prompt):
     def learning_mask(self, train_loader):
         classifier = EmbeddingProjection(in_feature=768, hidden_features=[2048], out_feature=10).cuda()
         mask_criterion = nn.CrossEntropyLoss(reduction='mean').cuda()
+        classifier_opt = torch.optim.Adam(classifier.parameters(), lr=0.001)
+        for t in range(3):
+            for i, (x, y, task) in enumerate(train_loader):
+                self.model.train()
+                if self.gpu:
+                    x = x.cuda()
+                    y = y.cuda()
+                y = y - y.min()
+
+                list_masked_prev_prompt = list()
+
+                last_feature, _ = self.model(x, pen=True, train=True, use_prompt=False)
+                check_tensor_nan(last_feature, "last_feature")
+                logits = classifier(last_feature)
+                total_loss = mask_criterion(logits, y.long())
+                # step
+                classifier_opt.zero_grad()
+                total_loss.backward()
+                classifier_opt.step()
+                print(total_loss)
 
         prompt = self.model.prompt
         list_prev_prompt = prompt._retrieve_previous_prompt(self.model.task_id)
@@ -281,7 +301,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             real_mask_param = nn.Parameter(real_mask)  # initialize real_mask
             list_param.append(real_mask_param)
 
-        mask_opt = torch.optim.Adam([*list_param, *classifier.parameters()], lr=0.001)
+        mask_opt = torch.optim.Adam(list_param, lr=0.001)
         for t in range(10):
             for i, (x, y, task) in enumerate(train_loader):
                 self.model.train()

@@ -441,9 +441,10 @@ class MaskedPrompt(ContrastivePrototypicalPrompt):
             masked_prev_prompt = self.masked_prompt[l]
             non_zero_prev_prompt_indices = torch.any(masked_prev_prompt != 0, dim=1)
             non_zero_prev_prompt = masked_prev_prompt[non_zero_prev_prompt_indices]
-            non_zero_prev_prompt.grad = False
+            non_zero_prev_prompt.requires_grad = False
             p = getattr(self, f'e_p_{l}')[task_id] # initialize current prompt
-            p[:non_zero_prev_prompt.shape[0], :] = non_zero_prev_prompt # replace top_k row prompt with chosen prev_prompt
+            p = torch.cat((non_zero_prev_prompt, p[non_zero_prev_prompt.shape[0]:]), dim=0)
+            
 
     def set_masked_prompt(self, masked_prev_prompt):
         self.masked_prompt = masked_prev_prompt
