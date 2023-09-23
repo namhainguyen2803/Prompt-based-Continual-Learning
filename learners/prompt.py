@@ -236,6 +236,10 @@ class ContrastivePrototypicalPrompt(Prompt):
     def learn_batch(self, train_loader, train_dataset,
                     model_save_dir, prototype_save_dir=None,
                     val_loader=None, need_loss=True, need_acc=False):
+        
+        # concatenate prompt
+        self.model.prompt.concat_prompt(self.model.task_id)
+
         # key_prototype
         can_load_prototype = False
         if not self.overwrite:

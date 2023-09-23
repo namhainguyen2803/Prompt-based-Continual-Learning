@@ -376,6 +376,17 @@ class ContrastivePrototypicalPrompt(DualPrompt):
         self.task_id_bootstrap = True
         self.top_k = 3
 
+    def concat_prompt(self, task_id):
+        if task_id > 0:
+            for l in self.e_layers:
+                p = getattr(self, f'e_p_{l}')
+                prev_prompt = p[:task_id].detach().clone()
+                prev_prompt = prev_prompt.reshape(-1, prev_prompt.shape[2])
+                current_prompt = torch.cat((prev_prompt, p[task_id]), dim=0)
+                print(f"task id {task_id}, layer {l}, shape of prompt in: "
+                      f"old version: {p.shape}, concat version: {current_prompt.shape}")
+                setattr(self, f'e_p_{l}', current_prompt) # since concat is not an inplace operation, need to set back
+
     def forward(self, x_query, l, x_block, train=False, task_id=None, possible_task_id=None, prompt_type="tuning"):
         # e prompts
         B, C = x_query.shape
