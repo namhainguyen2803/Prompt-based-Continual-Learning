@@ -200,14 +200,26 @@ class Trainer:
             self.test_dataset.load_dataset(i, train=False)
             test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False,
                                      num_workers=self.workers)
+
             model_save_dir = self.model_top_dir + '/models/repeat-' + str(self.seed + 1) + '/task-' + self.task_names[
                 i] + '/'
+            prototype_save_dir = self.model_top_dir + '/prototype/repeat-' + str(self.seed + 1) + '/task-' + \
+                                 self.task_names[i] + '/'
+
             if not os.path.exists(model_save_dir):
                 os.makedirs(model_save_dir)
+            if not os.path.exists(prototype_save_dir):
+                os.makedirs(prototype_save_dir)
 
             # learn
-            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader)
+            avg_train_time = self.learner.learn_batch(train_loader=train_loader,
+                                                      train_dataset=self.train_dataset,
+                                                      model_save_dir=model_save_dir,
+                                                      prototype_save_dir=prototype_save_dir,
+                                                      val_loader=test_loader)
+
             self.learner.save_model(model_save_dir)
+            self.learner.save_prototype(prototype_save_dir)
 
             # evaluate acc
             acc_table = []
@@ -224,7 +236,7 @@ class Trainer:
 
             if avg_train_time is not None: avg_metrics['time']['global'][i] = avg_train_time
 
-        return avg_metrics, self.learner
+        return avg_metrics
 
     def summarize_acc(self, acc_dict, acc_table, acc_table_pt):
 
@@ -252,10 +264,9 @@ class Trainer:
         # repack dictionary and return
         return {'global': avg_acc_all, 'pt': avg_acc_pt, 'pt-local': avg_acc_pt_local}
 
-    def evaluate(self, avg_metrics, learner):
+    def evaluate(self, avg_metrics):
 
-        # self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
-        self.learner = learner
+        self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
         # store results
         metric_table = {}
         metric_table_local = {}
@@ -277,10 +288,15 @@ class Trainer:
             # load model
             model_save_dir = self.model_top_dir + '/models/repeat-' + str(self.seed + 1) + '/task-' + self.task_names[
                 i] + '/'
+            prototype_save_dir = self.model_top_dir + '/prototype/repeat-' + str(self.seed + 1) + '/task-' + \
+                                 self.task_names[i] + '/'
+
             self.learner.task_count = i
             self.learner.add_valid_output_dim(len(self.tasks_logits[i]))
             self.learner.pre_steps()
+
             self.learner.load_model(model_save_dir)
+            self.learner.load_prototype(prototype_save_dir)
 
             # set task id for model (needed for prompting)
             try:

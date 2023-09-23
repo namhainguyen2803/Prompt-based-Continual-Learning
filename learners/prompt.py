@@ -233,23 +233,29 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = self._update_prototype_set(prototype_set=self.value_prototype, train_loader=train_loader,
                                                           use_prompt=True)
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True, need_acc=False):
-        print("##### Attempt to update key prototype set. #####")
-        self._update_key_prototype(train_loader)
-        print("##### Finish updating key prototype set. #####")
+    def learn_batch(self, train_loader, train_dataset,
+                    model_save_dir, prototype_save_dir=None,
+                    val_loader=None, need_loss=True, need_acc=False):
+        # key_prototype
+        can_load_prototype = False
+        if not self.overwrite:
+            try:
+                self.load_prototype(prototype_save_dir)
+                print("Finish loading key prototype.")
+                can_load_prototype = True
+            except:
+                print("Cannot load key prototype.")
+
+        if not can_load_prototype:
+            print("##### Attempt to update key prototype set. #####")
+            self._update_key_prototype(train_loader)
+            print("##### Finish updating key prototype set. #####")
+
         # re-initialize MLP neck
         self._reset_MLP_neck()
         print("Reset MLP neck.")
-        # learn prompt
-        print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
-        self._learn_batch(train_loader, train_dataset, model_save_dir, val_loader=val_loader, need_loss=need_loss)
-        print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
-        print("##### Attempt to update value prototype set. #####")
-        self._update_value_prototype(train_loader)
-        print("##### Finish updating value prototype set. #####")
 
-    def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True):
-        # try to load model
+        # learn prompt
         need_train = True
         if not self.overwrite:
             try:
@@ -257,79 +263,96 @@ class ContrastivePrototypicalPrompt(Prompt):
                 need_train = False
             except:
                 print("Cannot load model")
-        # trains
+        if need_train:
+            print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
+            self._learn_batch(train_loader, train_dataset, model_save_dir, val_loader=val_loader, need_loss=need_loss)
+            print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
+
+        # value_prototype
+        if not can_load_prototype:
+            print("##### Attempt to update value prototype set. #####")
+            self._update_value_prototype(train_loader)
+            print("##### Finish updating value prototype set. #####")
+        else:
+            print("Finish loading key prototype.")
+
+    def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, need_loss=True):
+        # try to load model
+
         if self.reset_optimizer:  # Reset optimizer before learning each task
             self.log('Optimizer is reset!')
             self.init_optimizer()
-        if need_train:
-            if need_loss:
-                losses = AverageMeter()
-            batch_time = AverageMeter()
-            batch_timer = Timer()
-            all_previous_value_prototype = None
-            avg_var = None
-            if not self.first_task:
 
-                # retrieve all perturbed prototype set in a single tensor
-                all_previous_value_prototype = list()
-                for class_id, value_prototype_set in self.value_prototype.items():
-                    if value_prototype_set.ndim == 1:
-                        value_prototype_set = value_prototype_set.unsqueeze(0)
-                    assert value_prototype_set.ndim == 2, "all_previous_value_prototype.ndim != 2."
-                    all_previous_value_prototype.append(value_prototype_set)
-                all_previous_value_prototype = torch.cat(all_previous_value_prototype, dim=0)
-                assert all_previous_value_prototype.ndim == 2, "all_previous_value_prototype.ndim != 2."
-                # all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
-                print(f"Check value_prototype, having shape: {all_previous_value_prototype.shape}, "
-                      f"requires grad: {all_previous_value_prototype.requires_grad}")
+        if need_loss:
+            losses = AverageMeter()
+        batch_time = AverageMeter()
+        batch_timer = Timer()
+        all_previous_value_prototype = None
+        avg_var = None
 
-                avg_var = list()
-                for class_id, avg_var_for_each_class in self.avg_variance.items():
-                    if class_id < self.last_valid_out_dim:
-                        avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
-                avg_var = torch.tensor(avg_var)
-                assert avg_var.shape[0] * self._num_anchor_value_prototype_per_class == all_previous_value_prototype.shape[0]
-                # stretch avg_var to be the same size as prototype.shape[0]
-                avg_var = avg_var.repeat(self._num_anchor_value_prototype_per_class).unsqueeze(-1).cuda()
+        if not self.first_task:
+            # retrieve all perturbed prototype set in a single tensor
+            all_previous_value_prototype = list()
+            for class_id, value_prototype_set in self.value_prototype.items():
+                if value_prototype_set.ndim == 1:
+                    value_prototype_set = value_prototype_set.unsqueeze(0)
+                assert value_prototype_set.ndim == 2, "all_previous_value_prototype.ndim != 2."
+                all_previous_value_prototype.append(value_prototype_set)
+            all_previous_value_prototype = torch.cat(all_previous_value_prototype, dim=0)
+            assert all_previous_value_prototype.ndim == 2, "all_previous_value_prototype.ndim != 2."
+            # all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
+            print(f"Check value_prototype, having shape: {all_previous_value_prototype.shape}, "
+                  f"requires grad: {all_previous_value_prototype.requires_grad}")
+            avg_var = list()
+            for class_id, avg_var_for_each_class in self.avg_variance.items():
+                if class_id < self.last_valid_out_dim:
+                    avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
+            avg_var = torch.tensor(avg_var)
+            assert avg_var.shape[0] * self._num_anchor_value_prototype_per_class == \
+                   all_previous_value_prototype.shape[0]
+            # stretch avg_var to be the same size as prototype.shape[0]
+            avg_var = avg_var.repeat(self._num_anchor_value_prototype_per_class).unsqueeze(-1).cuda()
 
-            for epoch in range(self.config['schedule'][-1]):
-                self.epoch = epoch
-                if epoch > 0:
-                    self.scheduler.step()
-                for param_group in self.optimizer.param_groups:
-                    self.log('LR:', param_group['lr'])
+        for epoch in range(self.config['schedule'][-1]):
+            self.epoch = epoch
+            if epoch > 0:
+                self.scheduler.step()
+            for param_group in self.optimizer.param_groups:
+                self.log('LR:', param_group['lr'])
+            batch_timer.tic()
+            for i, (x, y, task) in enumerate(train_loader):
+                # verify in train mode
+                self.model.train()
+                # send data to gpu
+                if self.gpu:
+                    x = x.cuda()
+                    y = y.cuda()
+                # model update
+                loss = self.update_model(x, y, all_previous_value_prototype, avg_var)
+                # print(loss)
+                # measure elapsed time
+                batch_time.update(batch_timer.toc())
                 batch_timer.tic()
-                for i, (x, y, task) in enumerate(train_loader):
-                    # verify in train mode
-                    self.model.train()
-                    # send data to gpu
-                    if self.gpu:
-                        x = x.cuda()
-                        y = y.cuda()
-                    # model update
-                    loss = self.update_model(x, y, all_previous_value_prototype, avg_var)
-                    # print(loss)
-                    # measure elapsed time
-                    batch_time.update(batch_timer.toc())
-                    batch_timer.tic()
-                    # measure accuracy and record loss
-                    y = y.detach()
-                    if need_loss:
-                        losses.update(loss, y.size(0))
-                    batch_timer.tic()
-                # eval update
-                self.log(
-                    'Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=self.epoch + 1, total=self.config['schedule'][-1]))
+                # measure accuracy and record loss
+                y = y.detach()
                 if need_loss:
-                    self.log(' * Loss {loss.avg:.3f} |'.format(loss=losses))
-                    losses = AverageMeter()
-                    if self.verbose == True and epoch % self.print_every == 0:
-                        print(f"##### Validation time in epoch: {epoch} #####")
-                        self._update_value_prototype(train_loader)
-                        loss = self._calculate_validation_loss(val_loader, all_previous_value_prototype, avg_var)
-                        acc = self.validation(dataloader=val_loader, model=None, task_in=None, task_metric='acc', verbal=True)
-                        print(f"Accuracy in validation: {acc}, loss value: {loss}")
-                        print("##### End validation #####")
+                    losses.update(loss, y.size(0))
+                batch_timer.tic()
+            # eval update
+            self.log(
+                'Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=self.epoch + 1, total=self.config['schedule'][-1]))
+            if need_loss:
+                self.log(' * Loss {loss.avg:.3f} |'.format(loss=losses))
+                losses = AverageMeter()
+                if self.verbose == True and epoch % self.print_every == 0:
+                    print(f"##### Validation time in epoch: {epoch} #####")
+                    self._update_value_prototype(train_loader)
+                    loss = self._calculate_validation_loss(val_loader, all_previous_value_prototype, avg_var)
+                    acc = self.validation(dataloader=val_loader, model=None, task_in=None, task_metric='acc',
+                                          verbal=True)
+                    print(f"Accuracy in validation: {acc}, loss value: {loss}")
+                    print("##### End validation #####")
+
         self.model.eval()
         self.last_valid_out_dim = self.valid_out_dim
         self.first_task = False
@@ -358,12 +381,12 @@ class ContrastivePrototypicalPrompt(Prompt):
                     all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
                     check_tensor_nan(all_previous_value_prototype, "all_previous_value_prototype (1)")
                 last_feature, _ = self.model(x, pen=True, train=False,
-                                                          use_prompt=True, possible_task_id = task.reshape(-1, 1))
+                                             use_prompt=True, possible_task_id=task.reshape(-1, 1))
                 check_tensor_nan(last_feature, "last_feature")
                 z_feature = self.MLP_neck(last_feature)
                 n_z_feature = nn.functional.normalize(z_feature, dim=1)
                 loss = self.criterion_fn(z_feature=n_z_feature, label=y,
-                                               previous_prototype=all_previous_value_prototype)
+                                         previous_prototype=all_previous_value_prototype)
                 total_loss += loss.detach()
                 total_element = x.shape[0]
             return total_loss / total_element
@@ -451,14 +474,15 @@ class ContrastivePrototypicalPrompt(Prompt):
                     mask_ind = mask.nonzero().view(-1)
                     input, target = input[mask_ind], target[mask_ind]
                     acc, correct_task, num_element = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input,
-                                                                        target=target, task=task, acc=acc, task_in=task_in)
+                                                                        target=target, task=task, acc=acc,
+                                                                        task_in=task_in)
                 total_correct += correct_task
                 total_element += num_element
         model.train(orig_mode)
         if verbal:
             ground_truth_task = torch.unique(task).cuda()
             self.log(f"In task {ground_truth_task}, "
-                  f"number of correct task: {total_correct} in {total_element} elements")
+                     f"number of correct task: {total_correct} in {total_element} elements")
             self.log(' * Val Acc {acc.avg:.3f}, Total time {time:.2f}'
                      .format(acc=acc, time=batch_timer.toc()))
         return acc.avg
@@ -534,6 +558,19 @@ class ContrastivePrototypicalPrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc, num_element_correct_task, B
 
+    def save_prototype(self, filename):
+        prototype = dict()
+        prototype["key"] = copy.deepcopy(self.key_prototype)
+        prototype["value"] = copy.deepcopy(self.value_prototype)
+        self.log('=> Saving class prototype to:', filename)
+        torch.save(prototype, filename + 'class.pth')
+        self.log('=> Save Prototype Done')
+
+    def load_prototype(self, filename):
+        prototype = torch.load(filename + 'class.pth')
+        self.key_prototype = prototype["key"]
+        self.value_prototype = prototype["value"]
+        self.log('=> Load Prototype Done')
 
 
 def check_tensor_nan(tensor, tensor_name="a"):

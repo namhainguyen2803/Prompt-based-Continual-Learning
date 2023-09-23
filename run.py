@@ -142,35 +142,34 @@ if __name__ == '__main__':
                     avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,args.repeat))
 
         # train model
-        avg_metrics, learner = trainer.train(avg_metrics)
-
+        avg_metrics = trainer.train(avg_metrics)
         # evaluate model
-        # avg_metrics = trainer.evaluate(avg_metrics, learner)
-        #
-        # # save results
-        # for mkey in metric_keys:
-        #     m_dir = args.log_dir+'/results-'+mkey+'/'
-        #     if not os.path.exists(m_dir): os.makedirs(m_dir)
-        #     for skey in save_keys:
-        #         if (not (mkey in global_only)) or (skey == 'global'):
-        #             save_file = m_dir+skey+'.yaml'
-        #             result=avg_metrics[mkey][skey]
-        #             yaml_results = {}
-        #             if len(result.shape) > 2:
-        #                 yaml_results['mean'] = result[:,:,:r+1].mean(axis=2).tolist()
-        #                 if r>1: yaml_results['std'] = result[:,:,:r+1].std(axis=2).tolist()
-        #                 yaml_results['history'] = result[:,:,:r+1].tolist()
-        #             else:
-        #                 yaml_results['mean'] = result[:,:r+1].mean(axis=1).tolist()
-        #                 if r>1: yaml_results['std'] = result[:,:r+1].std(axis=1).tolist()
-        #                 yaml_results['history'] = result[:,:r+1].tolist()
-        #             with open(save_file, 'w') as yaml_file:
-        #                 yaml.dump(yaml_results, yaml_file, default_flow_style=False)
-        #
-        # # Print the summary so far
-        # print('===Summary of experiment repeats:',r+1,'/',args.repeat,'===')
-        # for mkey in metric_keys:
-        #     print(mkey, ' | mean:', avg_metrics[mkey]['global'][-1,:r+1].mean(), 'std:', avg_metrics[mkey]['global'][-1,:r+1].std())
+        avg_metrics = trainer.evaluate(avg_metrics)
+
+        # save results
+        for mkey in metric_keys:
+            m_dir = args.log_dir+'/results-'+mkey+'/'
+            if not os.path.exists(m_dir): os.makedirs(m_dir)
+            for skey in save_keys:
+                if (not (mkey in global_only)) or (skey == 'global'):
+                    save_file = m_dir+skey+'.yaml'
+                    result=avg_metrics[mkey][skey]
+                    yaml_results = {}
+                    if len(result.shape) > 2:
+                        yaml_results['mean'] = result[:,:,:r+1].mean(axis=2).tolist()
+                        if r>1: yaml_results['std'] = result[:,:,:r+1].std(axis=2).tolist()
+                        yaml_results['history'] = result[:,:,:r+1].tolist()
+                    else:
+                        yaml_results['mean'] = result[:,:r+1].mean(axis=1).tolist()
+                        if r>1: yaml_results['std'] = result[:,:r+1].std(axis=1).tolist()
+                        yaml_results['history'] = result[:,:r+1].tolist()
+                    with open(save_file, 'w') as yaml_file:
+                        yaml.dump(yaml_results, yaml_file, default_flow_style=False)
+
+        # Print the summary so far
+        print('===Summary of experiment repeats:',r+1,'/',args.repeat,'===')
+        for mkey in metric_keys:
+            print(mkey, ' | mean:', avg_metrics[mkey]['global'][-1,:r+1].mean(), 'std:', avg_metrics[mkey]['global'][-1,:r+1].std())
     
     
 
