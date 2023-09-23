@@ -279,8 +279,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         for l in prompt.e_layers:
             real_mask = torch.randn(len_prev_prompt, 1, device='cuda')
             real_mask_param = nn.Parameter(real_mask)  # initialize real_mask
-            binary_mask_param = mask_function(mask=real_mask_param, sparsity=3)
-            list_param.append(binary_mask_param)
+            list_param.append(real_mask_param)
 
         mask_opt = torch.optim.Adam([*list_param, *classifier.parameters()], lr=0.001)
         for t in range(10):
@@ -293,7 +292,8 @@ class ContrastivePrototypicalPrompt(Prompt):
 
                 list_masked_prev_prompt = list()
                 for l in prompt.e_layers:
-                    masked_prev_prompt = list_param[l] * list_prev_prompt[l]
+                    binary_mask_param = mask_function(list_param[l], 3)
+                    masked_prev_prompt = binary_mask_param * list_prev_prompt[l]
                     list_masked_prev_prompt.append(masked_prev_prompt)
                 prompt.set_masked_prompt(list_masked_prev_prompt)
 
