@@ -426,46 +426,37 @@ class MaskedPrompt(ContrastivePrototypicalPrompt):
         self.e_pool_size = int(prompt_param[0])
         self.list_prompt = None
         self.task_id_bootstrap = True
-        self.sparsity = 0.4
         self.top_k = 3
 
-    def _create_learnable_mask(self, task_id):
-        assert task_id > 0, "task_id == 0."
-        self.list_prompt = list()
-        list_param = list()
-        mask_function = MaskedParameter.apply
-        for l in self.e_layers:
-            # clone previous tasks prompt
-            prev_prompt = getattr(self, f'e_p_{l}')[:task_id].detach().clone()  # (num_prev_task_id, L_p, emb_d)
-            assert prev_prompt.grad == None
-            prev_prompt = prev_prompt.reshape(-1, prev_prompt.shape[2])  # (num_prev_task_id * L_p, emb_d)
-            real_mask = torch.randn(prev_prompt.shape[0], 1, device='cuda')
-            real_mask_param = nn.Parameter(real_mask) # initialize real_mask
-            list_param.append(real_mask_param)
-            mask = mask_function(real_mask_param, self.sparsity) # initialize binary mask
-            masked_prev_prompt = mask * prev_prompt
-            self.list_prompt.append(masked_prev_prompt)
-        return list_param
+    def _retrieve_previous_prompt(self, task_id):
+      list_prev_prompt = list()
+      for l in self.e_layers:
+        prev_prompt = getattr(self, f'e_p_{l}')[:task_id].detach().clone()  # (num_prev_task_id, L_p, emb_d)
+        prev_prompt = prev_prompt.reshape(-1, prev_prompt.shape[2])  # (num_prev_task_id * L_p, emb_d)
+        list_prev_prompt.append(prev_prompt)
+      return list_prev_prompt
 
     def initialize_prompt(self, task_id):
         for l in self.e_layers:
-            masked_prev_prompt = self.list_prompt[l]
+            masked_prev_prompt = self.masked_prompt[l]
             non_zero_prev_prompt_indices = torch.any(masked_prev_prompt != 0, dim=1)
             non_zero_prev_prompt = masked_prev_prompt[non_zero_prev_prompt_indices]
             non_zero_prev_prompt.grad = False
             p = getattr(self, f'e_p_{l}')[task_id] # initialize current prompt
             p[:non_zero_prev_prompt.shape[0], :] = non_zero_prev_prompt # replace top_k row prompt with chosen prev_prompt
-            setattr(self, f'e_p_{l}', p)
+
+    def set_masked_prompt(self, masked_prev_prompt):
+        self.masked_prompt = masked_prev_prompt
 
     def forward(self, x_query, l, x_block, train=False, task_id=None, possible_task_id=None,
                 prompt_type="tuning", learn_mask=False):
 
         if learn_mask:
-            assert self.list_prompt is not None
+            assert self.masked_prompt is not None
             P_ = None
             if l in self.e_layers:
                 B, C = x_query.shape
-                P_ = self.list_prompt[l].expand(B, -1, -1)
+                P_ = self.masked_prompt[l].expand(B, -1, -1)
             return P_, 0, x_block
 
         else:
@@ -593,20 +584,3 @@ class ViTZoo(nn.Module):
 
 def vit_pt_imnet(out_dim, prompt_flag='l2p', prompt_param=None):
     return ViTZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param)
-
-
-class MaskedParameter(autograd.Function):
-
-    @staticmethod
-    def forward(self, mask, sparsity):
-        out = mask.clone()
-        _, idx = mask.flatten().sort()
-        j = int((1 - sparsity) * mask.numel())
-        flat_out = out.flatten()
-        flat_out[idx[:j]] = 0
-        flat_out[idx[j:]] = 1
-        return out
-
-    @staticmethod
-    def backward(self, g):
-        return g, None

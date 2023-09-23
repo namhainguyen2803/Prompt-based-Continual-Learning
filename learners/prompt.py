@@ -176,7 +176,8 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def create_model(self):
         cfg = self.config
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag='masked',
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim,
+                                                                               prompt_flag='masked',
                                                                                prompt_param=self.prompt_param)
         return model
 
@@ -267,8 +268,20 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def learning_mask(self, train_loader):
         classifier = EmbeddingProjection(in_feature=768, hidden_features=[2048], out_feature=10).cuda()
-        mask_criterion = nn.CrossEntropyLoss(reduction='mean')
-        list_param = self.model.prompt._create_learnable_mask(self.model.task_id)
+        mask_criterion = nn.CrossEntropyLoss(reduction='mean').cuda()
+
+        prompt = self.model.prompt
+        list_prev_prompt = prompt._retrieve_previous_prompt(self.model.task_id)
+        len_prev_prompt = list_prev_prompt[0].shape[0]
+        mask_function = MaskedParameter.apply
+
+        list_param = list()
+        for l in prompt.e_layers:
+            real_mask = torch.randn(len_prev_prompt, 1, device='cuda')
+            real_mask_param = nn.Parameter(real_mask)  # initialize real_mask
+            binary_mask_param = mask_function(mask=real_mask_param, sparsity=0.3)
+            list_param.append(binary_mask_param)
+
         mask_opt = torch.optim.Adam([*list_param, *classifier.parameters()], lr=0.001)
         for t in range(10):
             for i, (x, y, task) in enumerate(train_loader):
@@ -277,7 +290,15 @@ class ContrastivePrototypicalPrompt(Prompt):
                     x = x.cuda()
                     y = y.cuda()
                 y = y - y.min()
-                last_feature, _, prompt_loss = self.model(x, learn_mask=True)
+
+                list_masked_prev_prompt = list()
+                for l in prompt.e_layers:
+                    masked_prev_prompt = list_param[l] * list_prev_prompt[l]
+                    list_masked_prev_prompt.append(masked_prev_prompt)
+                prompt.set_masked_prompt(list_masked_prev_prompt)
+
+                last_feature, _, prompt_loss = self.model(x, pen=True, train=True,
+                                                          use_prompt=True, learn_mask=True)
                 check_tensor_nan(last_feature, "last_feature")
                 logits = classifier(last_feature)
                 total_loss = mask_criterion(logits, y.long())
@@ -285,6 +306,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                 mask_opt.zero_grad()
                 total_loss.backward()
                 mask_opt.step()
+                print(total_loss)
         self.model.prompt.initialize_prompt(self.model.task_id)
 
     def _learn_batch(self, train_loader, train_dataset, model_save_dir=None, val_loader=None, need_loss=True):
@@ -327,7 +349,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                     if class_id < self.last_valid_out_dim:
                         avg_var.append(avg_var_for_each_class)  # avg_var_for_each_class is a number
                 avg_var = torch.tensor(avg_var)
-                assert avg_var.shape[0] * self._num_anchor_value_prototype_per_class == all_previous_value_prototype.shape[0]
+                assert avg_var.shape[0] * self._num_anchor_value_prototype_per_class == \
+                       all_previous_value_prototype.shape[0]
                 # stretch avg_var to be the same size as prototype.shape[0]
                 avg_var = avg_var.repeat(self._num_anchor_value_prototype_per_class).unsqueeze(-1).cuda()
 
@@ -397,12 +420,12 @@ class ContrastivePrototypicalPrompt(Prompt):
                     all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
                     check_tensor_nan(all_previous_value_prototype, "all_previous_value_prototype (1)")
                 last_feature, _ = self.model(x, pen=True, train=False,
-                                                          use_prompt=True, possible_task_id = task.reshape(-1, 1))
+                                             use_prompt=True, possible_task_id=task.reshape(-1, 1))
                 check_tensor_nan(last_feature, "last_feature")
                 z_feature = self.MLP_neck(last_feature)
                 n_z_feature = nn.functional.normalize(z_feature, dim=1)
                 loss = self.criterion_fn(z_feature=n_z_feature, label=y,
-                                               previous_prototype=all_previous_value_prototype)
+                                         previous_prototype=all_previous_value_prototype)
                 total_loss += loss.detach()
                 total_element = x.shape[0]
             return total_loss / total_element
@@ -490,14 +513,15 @@ class ContrastivePrototypicalPrompt(Prompt):
                     mask_ind = mask.nonzero().view(-1)
                     input, target = input[mask_ind], target[mask_ind]
                     acc, correct_task, num_element = self._evaluate_CPP(U=U, U_hat=U_hat, model=model, input=input,
-                                                                        target=target, task=task, acc=acc, task_in=task_in)
+                                                                        target=target, task=task, acc=acc,
+                                                                        task_in=task_in)
                 total_correct += correct_task
                 total_element += num_element
         model.train(orig_mode)
         if verbal:
             ground_truth_task = torch.unique(task).cuda()
             self.log(f"In task {ground_truth_task}, "
-                  f"number of correct task: {total_correct} in {total_element} elements")
+                     f"number of correct task: {total_correct} in {total_element} elements")
             self.log(' * Val Acc {acc.avg:.3f}, Total time {time:.2f}'
                      .format(acc=acc, time=batch_timer.toc()))
         return acc.avg
@@ -587,7 +611,25 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = prototype["value"]
         self.log('=> Load Prototype Done')
 
+
 def check_tensor_nan(tensor, tensor_name="a"):
     has_nan = torch.isnan(tensor).any().item()
     if has_nan:
         raise f"Tensor {tensor_name} is nan."
+
+
+class MaskedParameter(autograd.Function):
+
+    @staticmethod
+    def forward(self, mask, sparsity):
+        out = mask.clone()
+        _, idx = mask.flatten().sort()
+        j = int((1 - sparsity) * mask.numel())
+        flat_out = out.flatten()
+        flat_out[idx[:j]] = 0
+        flat_out[idx[j:]] = 1
+        return out
+
+    @staticmethod
+    def backward(self, g):
+        return g, None

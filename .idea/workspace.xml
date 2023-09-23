@@ -4,6 +4,7 @@
     <list default="true" id="9eeb10e5-bdba-40da-a1d1-75f4c29ba796" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/learners/prompt.py" beforeDir="false" afterPath="$PROJECT_DIR$/learners/prompt.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/zoo.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/zoo.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
