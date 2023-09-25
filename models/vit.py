@@ -13,9 +13,11 @@ from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_, DropPath
 from timm.models.helpers import named_apply, adapt_input_conv
 
+
 class Mlp(nn.Module):
     """ MLP as used in Vision Transformer, MLP-Mixer and related networks
     """
+
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
         out_features = out_features or in_features
@@ -47,42 +49,68 @@ class Attention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
         self.attn_gradients = None
         self.attention_map = None
-        
+
     def save_attn_gradients(self, attn_gradients):
         self.attn_gradients = attn_gradients
-        
+
     def get_attn_gradients(self):
         return self.attn_gradients
-    
+
     def save_attention_map(self, attention_map):
         self.attention_map = attention_map
-        
+
     def get_attention_map(self):
         return self.attention_map
-    
-    def forward(self, x, register_hook=False, prompt=None):
+
+    def forward(self, x, register_hook=False, prompt=None, prompt_type="prefix"):
         B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
 
         if prompt is not None:
-            pk, pv = prompt
-            pk = pk.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-            pv = pv.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-            k = torch.cat((pk,k), dim=2)
-            v = torch.cat((pv,v), dim=2)
+            if prompt_type == "tuning":
+                prompt_length = prompt.shape[1]
+                x = torch.cat((prompt, x), dim=1)  # shape == (B, N + L_p, C)
+                qkv = self.qkv(x).reshape(B, N + prompt_length, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3,
+                                                                                                                1, 4)
+                q, k, v = qkv[0], qkv[1], qkv[2]  # shape of each == (B, num_head, N + L_p, C//num_head)
+            elif prompt_type == "prefix":
+                pk, pv = prompt
+                length_pk = pk.shape[1]
+                length_pv = pv.shape[1]
+                qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+                pk = self.qkv(pk)[1].reshape(B, length_pk, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+                # shape == (B, num_head, length_pk, C//num_head)
+                pv = self.qkv(pv)[2].reshape(B, length_pv, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+                # shape == (B, num_head, length_pv, C//num_head)
+                q, k, v = qkv[0], qkv[1], qkv[2]  # shape of each == (B, num_head, N, C//num_head)
+                k = torch.cat((pk, k), dim=2)  # shape == (B, num_head, N + length_pk, C//num_head)
+                v = torch.cat((pv, v), dim=2)  # shape == (B, num_head, N + length_pv, C//num_head)
+        else:
+            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+            q, k, v = qkv[0], qkv[1], qkv[2]
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
-                
+
         if register_hook:
             self.save_attention_map(attn)
-            attn.register_hook(self.save_attn_gradients)        
+            attn.register_hook(self.save_attn_gradients)
 
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        if prompt_type == "prefix":
+            x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        elif prompt_type == "tuning":
+            prompt_length = prompt.shape[1]
+            x = (attn @ v).transpose(1, 2).reshape(B, N + prompt_length, C)
+
         x = self.proj(x)
         x = self.proj_drop(x)
+
+        if prompt_type == "tuning":  # if prompt tuning then the length of output is longer than prefix,
+            # which the length of output remains
+            prompt_length = prompt.shape[1]
+            x = x[:, prompt_length:, :]
+
+        assert x.shape == (B, N, C), "x.shape != (B, N, C)"
         return x
 
 
@@ -92,26 +120,27 @@ class Block(nn.Module):
                  drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = Attention(
-            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                              attn_drop=attn_drop, proj_drop=drop)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
-
-    def forward(self, x, register_hook=False, prompt=None):
-        x = x + self.drop_path(self.attn(self.norm1(x), register_hook=register_hook, prompt=prompt))
+    def forward(self, x, register_hook=False, prompt=None, prompt_type='prefix'):
+        x = x + self.drop_path(self.attn(self.norm1(x), register_hook=register_hook,
+                                         prompt=prompt, prompt_type=prompt_type))
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
-    
+
 class VisionTransformer(nn.Module):
     """ Vision Transformer
     A PyTorch impl of : `An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale`  -
         https://arxiv.org/abs/2010.11929
     """
+
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None):
@@ -141,10 +170,11 @@ class VisionTransformer(nn.Module):
         num_patches = self.patch_embed.num_patches
 
         # there is unique class_token, meaning class_token is shared among instances
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) # class token, corresponding to first vector embedding
+        self.cls_token = nn.Parameter(
+            torch.zeros(1, 1, embed_dim))  # class token, corresponding to first vector embedding
         # positional_embedding, used to adding with flatten_patches vector
         # again, there is only one positional embedding, and in posisional embedding, there are num_patches+1 position to be embedded
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim)) # position embedding
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))  # position embedding
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
@@ -152,7 +182,7 @@ class VisionTransformer(nn.Module):
             Block(
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer,
-                )
+            )
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
 
@@ -173,9 +203,11 @@ class VisionTransformer(nn.Module):
     def no_weight_decay(self):
         return {'pos_embed', 'cls_token'}
 
-    def forward(self, x, block_id_for_register_hook=-1, prompt=None, q=None, train=False, task_id=None):
-        B = x.shape[0] # number of instances in a batch
-        patch_x = self.patch_embed(x) # output of Embedding Patch layer
+    def forward(self, x, block_id_for_register_hook=-1, prompt=None, q=None,
+                train=False, task_id=None, prompt_type="prefix"):
+
+        B = x.shape[0]  # number of instances in a batch
+        patch_x = self.patch_embed(x)  # output of Embedding Patch layer
 
         # class token, basically this line of code is used for copycatting class token to each instance in the batch
         # there is only unique class token, meaning class_token is shared among instances
@@ -183,35 +215,35 @@ class VisionTransformer(nn.Module):
         # embed class_token to flatten_patches
         x = torch.cat((cls_tokens, patch_x), dim=1)
         # add positional embedding to flatten_patches
-        x = x + self.pos_embed[:,:x.size(1),:]
+        x = x + self.pos_embed[:, :x.size(1), :]
         x = self.pos_drop(x)
 
         # loss function(?) since we fix weight of pretrained model and update prompt parameters
-        prompt_loss = torch.zeros((1,), requires_grad=True).cuda() # need to fix this line to .to(DEVICE) !!!
-        for i,block in enumerate(self.blocks):
+        prompt_loss = torch.zeros((1,), requires_grad=True).cuda()  # need to fix this line to .to(DEVICE) !!!
+        for i, block in enumerate(self.blocks):
 
             if prompt is not None:
                 if train:
-                    p_list, loss, x = prompt.forward(q, i, x, train=True, task_id=task_id)
+                    p_list, loss, x = prompt(q, i, x, train=True, task_id=task_id, prompt_type=prompt_type)
                     prompt_loss += loss
                 else:
-                    p_list, _, x = prompt.forward(q, i, x, train=False, task_id=task_id)
+                    p_list, _, x = prompt(q, i, x, train=False, task_id=task_id, prompt_type=prompt_type)
             else:
                 p_list = None
             # if register_hook_for_block_id == -1 then no need to have register_hook for each Block
             if block_id_for_register_hook == i:
-                x = block(x=x, register_hook=True, prompt=p_list)
+                x = block(x=x, register_hook=True, prompt=p_list, prompt_type=prompt_type)
             else:
-                x = block(x=x, register_hook=False, prompt=p_list)
+                x = block(x=x, register_hook=False, prompt=p_list, prompt_type=prompt_type)
 
         x = self.norm(x)
-        
+
         return x, prompt_loss
 
     @torch.jit.ignore()
     def load_pretrained(self, checkpoint_path, prefix=''):
         _load_weights(self, checkpoint_path, prefix)
-        
+
 
 @torch.no_grad()
 def _load_weights(model: VisionTransformer, checkpoint_path: str, prefix: str = ''):
@@ -269,12 +301,12 @@ def _load_weights(model: VisionTransformer, checkpoint_path: str, prefix: str = 
     model.pos_embed.copy_(pos_embed_w)
     model.norm.weight.copy_(_n2p(w[f'{prefix}Transformer/encoder_norm/scale']))
     model.norm.bias.copy_(_n2p(w[f'{prefix}Transformer/encoder_norm/bias']))
-#     if isinstance(model.head, nn.Linear) and model.head.bias.shape[0] == w[f'{prefix}head/bias'].shape[-1]:
-#         model.head.weight.copy_(_n2p(w[f'{prefix}head/kernel']))
-#         model.head.bias.copy_(_n2p(w[f'{prefix}head/bias']))
-#     if isinstance(getattr(model.pre_logits, 'fc', None), nn.Linear) and f'{prefix}pre_logits/bias' in w:
-#         model.pre_logits.fc.weight.copy_(_n2p(w[f'{prefix}pre_logits/kernel']))
-#         model.pre_logits.fc.bias.copy_(_n2p(w[f'{prefix}pre_logits/bias']))
+    #     if isinstance(model.head, nn.Linear) and model.head.bias.shape[0] == w[f'{prefix}head/bias'].shape[-1]:
+    #         model.head.weight.copy_(_n2p(w[f'{prefix}head/kernel']))
+    #         model.head.bias.copy_(_n2p(w[f'{prefix}head/bias']))
+    #     if isinstance(getattr(model.pre_logits, 'fc', None), nn.Linear) and f'{prefix}pre_logits/bias' in w:
+    #         model.pre_logits.fc.weight.copy_(_n2p(w[f'{prefix}pre_logits/kernel']))
+    #         model.pre_logits.fc.bias.copy_(_n2p(w[f'{prefix}pre_logits/bias']))
     for i, block in enumerate(model.blocks.children()):
         block_prefix = f'{prefix}Transformer/encoderblock_{i}/'
         mha_prefix = block_prefix + 'MultiHeadDotProductAttention_1/'
@@ -292,8 +324,8 @@ def _load_weights(model: VisionTransformer, checkpoint_path: str, prefix: str = 
         block.norm2.weight.copy_(_n2p(w[f'{block_prefix}LayerNorm_2/scale']))
         block.norm2.bias.copy_(_n2p(w[f'{block_prefix}LayerNorm_2/bias']))
 
-            
-def interpolate_pos_embed(pos_embed_checkpoint, visual_encoder):        
+
+def interpolate_pos_embed(pos_embed_checkpoint, visual_encoder):
     # interpolate position embedding
     embedding_size = pos_embed_checkpoint.shape[-1]
     num_patches = visual_encoder.patch_embed.num_patches
@@ -303,7 +335,7 @@ def interpolate_pos_embed(pos_embed_checkpoint, visual_encoder):
     # height (== width) for the new position embedding
     new_size = int(num_patches ** 0.5)
 
-    if orig_size!=new_size:
+    if orig_size != new_size:
         # class_token and dist_token are kept unchanged
         extra_tokens = pos_embed_checkpoint[:, :num_extra_tokens]
         # only the position tokens are interpolated
@@ -313,8 +345,8 @@ def interpolate_pos_embed(pos_embed_checkpoint, visual_encoder):
             pos_tokens, size=(new_size, new_size), mode='bicubic', align_corners=False)
         pos_tokens = pos_tokens.permute(0, 2, 3, 1).flatten(1, 2)
         new_pos_embed = torch.cat((extra_tokens, pos_tokens), dim=1)
-        print('reshape position embedding from %d to %d'%(orig_size ** 2,new_size ** 2))
-        
-        return new_pos_embed    
+        print('reshape position embedding from %d to %d' % (orig_size ** 2, new_size ** 2))
+
+        return new_pos_embed
     else:
         return pos_embed_checkpoint

@@ -177,7 +177,8 @@ class NormalNN(nn.Module):
                     input = input.cuda()
                     target = target.cuda()
             if task_in is None:
-                output = model.forward(input)[:, :self.valid_out_dim]
+                logit, _, _ = model(input)
+                output = logit[:, :self.valid_out_dim]
                 acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
             else:
                 mask = target >= task_in[0]
@@ -190,10 +191,12 @@ class NormalNN(nn.Module):
 
                 if len(target) > 1:
                     if task_global:
-                        output = model.forward(input)[:, :self.valid_out_dim]
+                        logit, _, _ = model(input)
+                        output = logit[:, :self.valid_out_dim]
                         acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
                     else:
-                        output = model.forward(input)[:, task_in]
+                        logit, _, _ = model(input)
+                        output = logit[:, task_in]
                         acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
 
         model.train(orig_mode)

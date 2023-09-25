@@ -29,7 +29,7 @@ class AbstractPrompt(nn.Module, ABC):
         pass
 
     @abstractmethod
-    def forward(self, x_query, l, x_block, train=False, task_id=None):
+    def forward(self, x_query, l, x_block, train=False, task_id=None, prompt_type="tuning"):
         pass
 
 
@@ -147,8 +147,9 @@ class CodaPrompt(AbstractPrompt):
 
         return torch.nn.Parameter(uu)
 
-    def forward(self, x_query, l, x_block, train=False, task_id=None):
-
+    def forward(self, x_query, l, x_block, train=False, task_id=None, prompt_type="tuning"):
+        p_return = None
+        loss = 0
         # e prompts
         e_valid = False
         if l in self.e_layers:
@@ -185,12 +186,7 @@ class CodaPrompt(AbstractPrompt):
             q = nn.functional.normalize(a_querry, dim=2)
             aq_k = torch.einsum('bkd,kd->bk', q, n_K)
             # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
-            P_ = torch.einsum('bk,kld->bld', aq_k, p)
-
-            # select prompts
-            i = int(self.e_p_length / 2)
-            Ek = P_[:, :i, :]
-            Ev = P_[:, i:, :]
+            selected_prompt = torch.einsum('bk,kld->bld', aq_k, p)
 
             # ortho penalty
             if train and self.ortho_mu > 0:
@@ -199,14 +195,16 @@ class CodaPrompt(AbstractPrompt):
                 loss += ortho_penalty(p.view(p.shape[0], -1)) * self.ortho_mu
             else:
                 loss = 0
-        else:
-            loss = 0
 
-        # combine prompts for prefix tuning
         if e_valid:
-            p_return = [Ek, Ev]
-        else:
-            p_return = None
+            if prompt_type == "prefix":
+                # combine prompts for prefix tuning
+                i = int(self.e_p_length / 2)
+                Ek = selected_prompt[:, :i, :]
+                Ev = selected_prompt[:, i:, :]
+                p_return = [Ek, Ev]
+            elif prompt_type == "tuning":
+                p_return = selected_prompt
 
         # return
         return p_return, loss, x_block
@@ -249,77 +247,93 @@ class DualPrompt(AbstractPrompt):
     def process_task_count(self):
         self.task_count += 1
 
-    def forward(self, x_query, l, x_block, train=False, task_id=None):
-
+    def forward(self, x_query, l, x_block, train=False, task_id=None, prompt_type="tuning"):
+        p_return = None
+        loss = 0
         # e prompts
         e_valid = False
+        B, C = x_query.shape
         if l in self.e_layers:
             e_valid = True
-            B, C = x_query.shape
-            K = getattr(self, f'e_k_{l}')  # 0 based indexing here
-            p = getattr(self, f'e_p_{l}')  # 0 based indexing here
-
-            # cosine similarity to match keys/querries
-            n_K = nn.functional.normalize(K, dim=1)  # shape == (self.e_pool_size, self.key_d)
-            q = nn.functional.normalize(x_query,
-                                        dim=1).detach()  # shape == (self.e_pool_size, self.e_p_length, self.embedding_dimension)
+            K = getattr(self, f'e_k_{l}')
+            p = getattr(self, f'e_p_{l}')
+            # cosine similarity to match keys/queries
+            n_K = nn.functional.normalize(K, dim=1)
+            # shape == (self.e_pool_size, self.key_d)
+            q = nn.functional.normalize(x_query, dim=1).detach()
+            # shape == (self.e_pool_size, self.e_p_length, self.embedding_dimension)
             cos_sim = torch.einsum('bj,kj->bk', q, n_K)
-
+# 001303019002
             if train:
                 # dual prompt during training uses task id
                 if self.task_id_bootstrap:
                     loss = (1.0 - cos_sim[:, task_id]).sum()
-                    P_ = p[task_id].expand(len(x_query), -1, -1)
+                    selected_e_prompt = p[task_id].expand(len(x_query), -1, -1)
                 else:
                     top_k = torch.topk(cos_sim, self.top_k, dim=1)
                     k_idx = top_k.indices  # shape of k_idx == (B, self.top_k)
                     loss = (1.0 - cos_sim[:, k_idx]).sum()
-                    P_ = p[k_idx]  # shape == (B, self.top_k, self.e_p_length, self.embedding_dimension)
+                    selected_e_prompt = p[k_idx]  # shape == (B, self.top_k, self.e_p_length, self.embedding_dimension)
             else:
                 top_k = torch.topk(cos_sim, self.top_k, dim=1)
                 k_idx = top_k.indices
-                P_ = p[k_idx]
+                selected_e_prompt = p[k_idx]
 
             # select prompts
-            if train and self.task_id_bootstrap:
-                i = int(self.e_p_length / 2)
-                Ek = P_[:, :i, :].reshape((B, -1, self.emb_d))
-                Ev = P_[:, i:, :].reshape((B, -1, self.emb_d))
-            else:
-                i = int(self.e_p_length / 2)
-                Ek = P_[:, :, :i, :].reshape(
-                    (B, -1, self.emb_d))  # shape == (B, self.top_k * i, self.embedding_dimension)
-                Ev = P_[:, :, i:, :].reshape((B, -1, self.emb_d))
+            if prompt_type == "prefix":
+                if train and self.task_id_bootstrap:
+                    i = int(self.e_p_length / 2)
+                    Ek = selected_e_prompt[:, :i, :].reshape(B, -1, self.emb_d)
+                    Ev = selected_e_prompt[:, i:, :].reshape(B, -1, self.emb_d)
+                else:
+                    i = int(self.e_p_length / 2)
+                    Ek = selected_e_prompt[:, :, :i, :].reshape(B, -1, self.emb_d)
+                    # shape == (B, self.top_k * i, self.embedding_dimension)
+                    Ev = selected_e_prompt[:, :, i:, :].reshape(B, -1, self.emb_d)
 
         # g prompts
         g_valid = False
         if l in self.g_layers:
             g_valid = True
             j = int(self.g_p_length / 2)
-            p = getattr(self, f'g_p_{l}')  # 0 based indexing here
-            P_ = p.expand(len(x_query), -1, -1)
-            Gk = P_[:, :j, :]
-            Gv = P_[:, j:, :]
+            p = getattr(self, f'g_p_{l}')
+            selected_g_prompt = p.expand(B, -1, -1)
 
-        # combine prompts for prefix tuning
-        if e_valid and g_valid:
-            Pk = torch.cat((Ek, Gk), dim=1)
-            Pv = torch.cat((Ev, Gv), dim=1)
-            p_return = [Pk, Pv]
-        elif e_valid:
-            p_return = [Ek, Ev]
-        elif g_valid:
-            p_return = [Gk, Gv]
-            loss = 0
-        else:
-            p_return = None
-            loss = 0
+            if prompt_type == "prefix":
+                Gk = selected_g_prompt[:, :j, :]
+                Gv = selected_g_prompt[:, j:, :]
 
-        # return
-        if train:
-            return p_return, loss, x_block
+        if prompt_type == "prefix":
+            # combine prompts for prefix tuning
+            if e_valid and g_valid:
+                Pk = torch.cat((Ek, Gk), dim=1)
+                Pv = torch.cat((Ev, Gv), dim=1)
+                p_return = [Pk, Pv]
+            elif e_valid:
+                p_return = [Ek, Ev]
+            elif g_valid:
+                p_return = [Gk, Gv]
+                loss = 0
+            else:
+                p_return = None
+                loss = 0
+
+        elif prompt_type == "tuning":
+            if e_valid and g_valid:
+                p_return = torch.cat((selected_e_prompt, selected_g_prompt), dim=1)
+            elif e_valid:
+                p_return = selected_e_prompt
+            elif g_valid:
+                p_return = selected_g_prompt
+                loss = 0
+            else:
+                p_return = None
+                loss = 0
+
         else:
-            return p_return, 0, x_block
+            raise "Have not built prompt type other than tuning and prefix yet."
+
+        return p_return, loss, x_block
 
 
 class L2P(DualPrompt):
@@ -342,11 +356,6 @@ class L2P(DualPrompt):
         self.e_p_length = int(prompt_param[1])
         self.e_pool_size = int(prompt_param[0])
 
-        # g prompt init
-        for g in self.g_layers:
-            p = tensor_prompt(self.g_p_length, emb_d)
-            setattr(self, f'g_p_{g}', p)
-
         # e prompt init
         for e in self.e_layers:
             p = tensor_prompt(self.e_pool_size, self.e_p_length, emb_d)
@@ -360,10 +369,62 @@ class SpecificPrompt(AbstractPrompt):
         super().__init__(emb_d, n_tasks, prompt_param, key_dim)
 
     def _init_smart(self, emb_d, prompt_param):
-        pass
+        self.top_k = 5
 
-    def forward(self, x_query, l, x_block, train=False, task_id=None):
-        pass
+        # prompt locations
+        self.g_layers = []
+        if prompt_param[2] > 0:
+            self.e_layers = [0, 1, 2, 3, 4]
+        else:
+            self.e_layers = [0]
+
+        # prompt pool size
+        self.g_p_length = -1
+        self.e_p_length = int(prompt_param[1])
+        self.e_pool_size = int(prompt_param[0])
+
+        # e prompt init
+        for e in self.e_layers:
+            p = tensor_prompt(self.e_pool_size, self.e_p_length, self.emb_d)
+            setattr(self, f'e_p_{e}', p)
+
+    def forward(self, x_query, l, x_block, train=False, task_id=None, prompt_type="tuning"):
+
+        p_return = None
+
+        if l in self.e_layers:
+            B, C = x_query.shape
+            p = getattr(self, f'e_p_{l}') # shape == (num_task, e_p, emb_d)
+
+            if not isinstance(task_id, torch.Tensor): # convert to tensor
+                task_id = torch.tensor(task_id)
+            if task_id.ndim == 0: # if number then convert to array
+                task_id = task_id.unsqueeze(-1)
+
+            if task_id.shape[0] == 1:
+                selected_prompt = p[task_id].expand(B, -1, -1) # shape == (B, e_p, emb_d)
+            else:
+                assert task_id.shape[0] == B, "task_id.shape[0] != B."
+                selected_prompt = p[task_id] # shape == (B, e_p, emb_d)
+
+            assert selected_prompt.shape == (B, self.e_p_length, self.emb_d), \
+                "selected_prompt.shape != (B, self.e_p_length, self.emb_d)."
+
+            # select prompts
+            if prompt_type == "prefix":
+                i = int(self.e_p_length / 2)
+                Ek = selected_prompt[:, :i, :].reshape(B, -1, self.emb_d)
+                Ev = selected_prompt[:, i:, :].reshape(B, -1, self.emb_d)
+                p_return = [Ek, Ev]
+            elif prompt_type == "tuning":
+                p_return = selected_prompt
+            else:
+                raise "Have not built prompt type other than tuning and prefix yet."
+
+        return p_return, 0, x_block
+
+    def process_task_count(self):
+        self.task_count += 1
 
 
 # note - ortho init has not been found to help l2p/dual prompt
@@ -420,7 +481,7 @@ class ViTZoo(nn.Module):
             q = q[:, 0, :]
             return q
 
-    def forward(self, x, get_logit=True, train=False, use_prompt=True, task_id=None):
+    def forward(self, x, get_logit=True, train=False, use_prompt=True, task_id=None, prompt_type="prefix"):
         prompt_loss = 0
         if self.prompt is not None and use_prompt is True:
             q = self.get_feature_vector(x) # query
@@ -430,7 +491,7 @@ class ViTZoo(nn.Module):
             else:
                 tid = task_id
 
-            out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=train, task_id=tid)
+            out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=train, task_id=tid, prompt_type=prompt_type)
 
             out = out[:, 0, :]
         else:
