@@ -1,25 +1,22 @@
 from __future__ import print_function
-import math
+
+import numpy as np
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
-from types import MethodType
 import models
 from utils.metric import accuracy, AverageMeter, Timer
-import numpy as np
-from torch.optim import Optimizer
-import contextlib
-import os
-import copy
 from utils.schedulers import CosineSchedule
+
 
 class NormalNN(nn.Module):
     '''
     Normal Neural Network with SGD for classification
     '''
+
     def __init__(self, learner_config):
 
         super(NormalNN, self).__init__()
+        self.epoch = None
         self.log = print
         self.config = learner_config
         self.out_dim = learner_config['out_dim']
@@ -29,6 +26,7 @@ class NormalNN(nn.Module):
         self.batch_size = learner_config['batch_size']
         self.tasks = learner_config['tasks']
         self.top_k = learner_config['top_k']
+        self.first_task = True
 
         # replay memory parameters
         self.memory_size = self.config['memory']
@@ -41,16 +39,16 @@ class NormalNN(nn.Module):
 
         # supervised criterion
         self.criterion_fn = nn.CrossEntropyLoss(reduction='none')
-        
+
         # cuda gpu
         if learner_config['gpuid'][0] >= 0:
             self.cuda()
             self.gpu = True
         else:
             self.gpu = False
-        
+
         # highest class index from past task
-        self.last_valid_out_dim = 0 
+        self.last_valid_out_dim = 0
 
         # highest class index from current task
         self.valid_out_dim = 0
@@ -67,7 +65,7 @@ class NormalNN(nn.Module):
     ##########################################
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
-        
+
         # try to load model
         need_train = True
         if not self.overwrite:
@@ -90,7 +88,7 @@ class NormalNN(nn.Module):
             batch_time = AverageMeter()
             batch_timer = Timer()
             for epoch in range(self.config['schedule'][-1]):
-                self.epoch=epoch
+                self.epoch = epoch
 
                 if epoch > 0:
                     self.scheduler.step()
@@ -98,7 +96,7 @@ class NormalNN(nn.Module):
                     self.log('LR:', param_group['lr'])
 
                 batch_timer.tic()
-                for i, (x, y, task)  in enumerate(train_loader):
+                for i, (x, y, task) in enumerate(train_loader):
 
                     # verify in train mode
                     self.model.train()
@@ -107,28 +105,29 @@ class NormalNN(nn.Module):
                     if self.gpu:
                         x = x.cuda()
                         y = y.cuda()
-                    
+
                     # model update
-                    loss, output= self.update_model(x, y)
+                    loss, output = self.update_model(x, y)
 
                     # measure elapsed time
-                    batch_time.update(batch_timer.toc())  
+                    batch_time.update(batch_timer.toc())
                     batch_timer.tic()
-                    
+
                     # measure accuracy and record loss
                     y = y.detach()
                     accumulate_acc(output, y, task, acc, topk=(self.top_k,))
-                    losses.update(loss,  y.size(0)) 
+                    losses.update(loss, y.size(0))
                     batch_timer.tic()
 
                 # eval update
-                self.log('Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=self.epoch+1,total=self.config['schedule'][-1]))
-                self.log(' * Loss {loss.avg:.3f} | Train Acc {acc.avg:.3f}'.format(loss=losses,acc=acc))
+                self.log(
+                    'Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=self.epoch + 1, total=self.config['schedule'][-1]))
+                self.log(' * Loss {loss.avg:.3f} | Train Acc {acc.avg:.3f}'.format(loss=losses, acc=acc))
 
                 # reset
                 losses = AverageMeter()
                 acc = AverageMeter()
-                
+
         self.model.eval()
 
         self.last_valid_out_dim = self.valid_out_dim
@@ -146,10 +145,10 @@ class NormalNN(nn.Module):
 
     def criterion(self, logits, targets, data_weights):
         loss_supervised = (self.criterion_fn(logits, targets.long()) * data_weights).mean()
-        return loss_supervised 
+        return loss_supervised
 
-    def update_model(self, inputs, targets, target_scores = None, dw_force = None, kd_index = None):
-        
+    def update_model(self, inputs, targets):
+
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         logits = self.forward(inputs)
         total_loss = self.criterion(logits, targets.long(), dw_cls)
@@ -159,7 +158,7 @@ class NormalNN(nn.Module):
         self.optimizer.step()
         return total_loss.detach(), logits
 
-    def validation(self, dataloader, model=None, task_in = None, task_metric='acc',  verbal = True, task_global=False):
+    def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True, task_global=False):
 
         if model is None:
             model = self.model
@@ -182,26 +181,26 @@ class NormalNN(nn.Module):
                 acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
             else:
                 mask = target >= task_in[0]
-                mask_ind = mask.nonzero().view(-1) 
+                mask_ind = mask.nonzero().view(-1)
                 input, target = input[mask_ind], target[mask_ind]
 
                 mask = target < task_in[-1]
-                mask_ind = mask.nonzero().view(-1) 
+                mask_ind = mask.nonzero().view(-1)
                 input, target = input[mask_ind], target[mask_ind]
-                
+
                 if len(target) > 1:
                     if task_global:
                         output = model.forward(input)[:, :self.valid_out_dim]
                         acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
                     else:
                         output = model.forward(input)[:, task_in]
-                        acc = accumulate_acc(output, target-task_in[0], task, acc, topk=(self.top_k,))
-            
+                        acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
+
         model.train(orig_mode)
 
         if verbal:
             self.log(' * Val Acc {acc.avg:.3f}, Total time {time:.2f}'
-                    .format(acc=acc, time=batch_timer.toc()))
+                     .format(acc=acc, time=batch_timer.toc()))
         return acc.avg
 
     ##########################################
@@ -240,10 +239,10 @@ class NormalNN(nn.Module):
     def init_optimizer(self):
 
         # parse optimizer args
-        optimizer_arg = {'params':self.model.parameters(),
-                         'lr':self.config['lr'],
-                         'weight_decay':self.config['weight_decay']}
-        if self.config['optimizer'] in ['SGD','RMSprop']:
+        optimizer_arg = {'params': self.model.parameters(),
+                         'lr': self.config['lr'],
+                         'weight_decay': self.config['weight_decay']}
+        if self.config['optimizer'] in ['SGD', 'RMSprop']:
             optimizer_arg['momentum'] = self.config['momentum']
         elif self.config['optimizer'] in ['Rprop']:
             optimizer_arg.pop('weight_decay')
@@ -251,11 +250,11 @@ class NormalNN(nn.Module):
             optimizer_arg['amsgrad'] = True
             self.config['optimizer'] = 'Adam'
         elif self.config['optimizer'] == 'Adam':
-            optimizer_arg['betas'] = (self.config['momentum'],0.999)
+            optimizer_arg['betas'] = (self.config['momentum'], 0.999)
 
         # create optimizers
         self.optimizer = torch.optim.__dict__[self.config['optimizer']](**optimizer_arg)
-        
+
         # create schedules
         if self.schedule_type == 'cosine':
             self.scheduler = CosineSchedule(self.optimizer, K=self.schedule[-1])
@@ -273,7 +272,7 @@ class NormalNN(nn.Module):
     def print_model(self):
         self.log(self.model)
         self.log('#parameter of model:', self.count_parameter())
-    
+
     def reset_model(self):
         self.model.apply(weight_reset)
 
@@ -284,7 +283,7 @@ class NormalNN(nn.Module):
         self.model.eval()
         out = self.forward(inputs)
         return out
-    
+
     def add_valid_output_dim(self, dim=0):
         # This function is kind of ad-hoc, but it is the simplest way to support incremental class learning
         self.log('Incremental class: Old valid output dimension:', self.valid_out_dim)
@@ -293,10 +292,10 @@ class NormalNN(nn.Module):
         return self.valid_out_dim
 
     def count_parameter(self):
-        return sum(p.numel() for p in self.model.parameters())   
+        return sum(p.numel() for p in self.model.parameters())
 
     def count_memory(self, dataset_size):
-        return self.count_parameter() + self.memory_size * dataset_size[0]*dataset_size[1]*dataset_size[2]
+        return self.count_parameter() + self.memory_size * dataset_size[0] * dataset_size[1] * dataset_size[2]
 
     def cuda(self):
         torch.cuda.set_device(self.config['gpuid'][0])
@@ -304,7 +303,8 @@ class NormalNN(nn.Module):
         self.criterion_fn = self.criterion_fn.cuda()
         # Multi-GPU
         if len(self.config['gpuid']) > 1:
-            self.model = torch.nn.DataParallel(self.model, device_ids=self.config['gpuid'], output_device=self.config['gpuid'][0])
+            self.model = torch.nn.DataParallel(self.model, device_ids=self.config['gpuid'],
+                                               output_device=self.config['gpuid'][0])
         return self
 
     def _get_device(self):
@@ -315,9 +315,11 @@ class NormalNN(nn.Module):
     def pre_steps(self):
         pass
 
+
 def weight_reset(m):
     if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
         m.reset_parameters()
+
 
 def accumulate_acc(output, target, task, meter, topk):
     meter.update(accuracy(output, target, topk), len(target))
