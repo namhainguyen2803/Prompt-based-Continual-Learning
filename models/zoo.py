@@ -342,6 +342,18 @@ class L2P(DualPrompt):
         self.e_p_length = int(prompt_param[1])
         self.e_pool_size = int(prompt_param[0])
 
+        # g prompt init
+        for g in self.g_layers:
+            p = tensor_prompt(self.g_p_length, emb_d)
+            setattr(self, f'g_p_{g}', p)
+
+        # e prompt init
+        for e in self.e_layers:
+            p = tensor_prompt(self.e_pool_size, self.e_p_length, emb_d)
+            k = tensor_prompt(self.e_pool_size, self.key_d)
+            setattr(self, f'e_p_{e}', p)
+            setattr(self, f'e_k_{e}', k)
+
 
 class SpecificPrompt(AbstractPrompt):
     def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
