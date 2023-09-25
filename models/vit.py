@@ -62,32 +62,17 @@ class Attention(nn.Module):
     def get_attention_map(self):
         return self.attention_map
 
-    def forward(self, x, register_hook=False, prompt=None, prompt_type="prefix"):
+    def forward(self, x, register_hook=False, prompt=None):
         B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
 
         if prompt is not None:
-            if prompt_type == "tuning":
-                prompt_length = prompt.shape[1]
-                x = torch.cat((prompt, x), dim=1)  # shape == (B, N + L_p, C)
-                qkv = self.qkv(x).reshape(B, N + prompt_length, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3,
-                                                                                                                1, 4)
-                q, k, v = qkv[0], qkv[1], qkv[2]  # shape of each == (B, num_head, N + L_p, C//num_head)
-            elif prompt_type == "prefix":
-                pk, pv = prompt
-                length_pk = pk.shape[1]
-                length_pv = pv.shape[1]
-                qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-                pk = self.qkv(pk)
-                pk = self.qkv(pk).reshape(B, length_pk, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)[1]
-                # shape == (B, num_head, length_pk, C//num_head)
-                pv = self.qkv(pv).reshape(B, length_pv, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)[2]
-                # shape == (B, num_head, length_pv, C//num_head)
-                q, k, v = qkv[0], qkv[1], qkv[2]  # shape of each == (B, num_head, N, C//num_head)
-                k = torch.cat((pk, k), dim=2)  # shape == (B, num_head, N + length_pk, C//num_head)
-                v = torch.cat((pv, v), dim=2)  # shape == (B, num_head, N + length_pv, C//num_head)
-        else:
-            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-            q, k, v = qkv[0], qkv[1], qkv[2]
+            pk, pv = prompt
+            pk = pk.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+            pv = pv.reshape(B, -1, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+            k = torch.cat((pk, k), dim=2)
+            v = torch.cat((pv, v), dim=2)
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
@@ -97,23 +82,10 @@ class Attention(nn.Module):
             self.save_attention_map(attn)
             attn.register_hook(self.save_attn_gradients)
 
-        if prompt_type == "prefix":
-            x = (attn @ v).transpose(1, 2).reshape(B, N, C)
-        elif prompt_type == "tuning":
-            prompt_length = prompt.shape[1]
-            x = (attn @ v).transpose(1, 2).reshape(B, N + prompt_length, C)
-
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-
-        if prompt_type == "tuning":  # if prompt tuning then the length of output is longer than prefix,
-            # which the length of output remains
-            prompt_length = prompt.shape[1]
-            x = x[:, prompt_length:, :]
-
-        assert x.shape == (B, N, C), "x.shape != (B, N, C)"
         return x
-
 
 class Block(nn.Module):
 
@@ -131,7 +103,7 @@ class Block(nn.Module):
 
     def forward(self, x, register_hook=False, prompt=None, prompt_type='prefix'):
         x = x + self.drop_path(self.attn(self.norm1(x), register_hook=register_hook,
-                                         prompt=prompt, prompt_type=prompt_type))
+                                         prompt=prompt))
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
@@ -205,7 +177,7 @@ class VisionTransformer(nn.Module):
         return {'pos_embed', 'cls_token'}
 
     def forward(self, x, block_id_for_register_hook=-1, prompt=None, q=None,
-                train=False, task_id=None, prompt_type="prefix"):
+                train=False, task_id=None):
 
         B = x.shape[0]  # number of instances in a batch
         patch_x = self.patch_embed(x)  # output of Embedding Patch layer
@@ -225,17 +197,17 @@ class VisionTransformer(nn.Module):
 
             if prompt is not None:
                 if train:
-                    p_list, loss, x = prompt(q, i, x, train=True, task_id=task_id, prompt_type=prompt_type)
+                    p_list, loss, x = prompt(q, i, x, train=True, task_id=task_id)
                     prompt_loss += loss
                 else:
-                    p_list, _, x = prompt(q, i, x, train=False, task_id=task_id, prompt_type=prompt_type)
+                    p_list, _, x = prompt(q, i, x, train=False, task_id=task_id)
             else:
                 p_list = None
             # if register_hook_for_block_id == -1 then no need to have register_hook for each Block
             if block_id_for_register_hook == i:
-                x = block(x=x, register_hook=True, prompt=p_list, prompt_type=prompt_type)
+                x = block(x=x, register_hook=True, prompt=p_list)
             else:
-                x = block(x=x, register_hook=False, prompt=p_list, prompt_type=prompt_type)
+                x = block(x=x, register_hook=False, prompt=p_list)
 
         x = self.norm(x)
 
