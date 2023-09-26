@@ -176,10 +176,10 @@ class ContrastivePrototypicalPrompt(Prompt):
 
                 if use_prompt:
                     last_feature, _ = self.model(x, get_logit=False, train=False, use_prompt=True,
-                                                 task_id=task)
+                                                 task_id=task, prompt_type=self.prompt_type)
                 else:
                     last_feature, _ = self.model(x, get_logit=False, train=False, use_prompt=False,
-                                                 task_id=task)
+                                                 task_id=task, prompt_type=self.prompt_type)
 
                 list_last_feature.append(last_feature)
                 list_output.append(y)

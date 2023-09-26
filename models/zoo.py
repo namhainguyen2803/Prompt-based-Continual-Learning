@@ -476,7 +476,7 @@ class ViTZoo(nn.Module):
         # feature encoder changes if transformer vs resnet
         self.feat = zoo_model
 
-    def get_feature_vector(self, x):
+    def retrieve_query_vector(self, x):
         with torch.no_grad():
             q, _ = self.feat(x)
             q = q[:, 0, :]
@@ -485,7 +485,7 @@ class ViTZoo(nn.Module):
     def forward(self, x, get_logit=True, train=False, use_prompt=True, task_id=None, prompt_type="prefix"):
         prompt_loss = 0
         if self.prompt is not None and use_prompt is True:
-            q = self.get_feature_vector(x)  # query
+            q = self.retrieve_query_vector(x)  # query
 
             if task_id is None:
                 tid = self.task_id
@@ -496,7 +496,7 @@ class ViTZoo(nn.Module):
 
             out = out[:, 0, :]
         else:
-            out = self.get_feature_vector(x)
+            out = self.retrieve_query_vector(x)
 
         out = out.view(out.size(0), -1)  # last feature vector
 
