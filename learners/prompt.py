@@ -29,6 +29,8 @@ class Prompt(NormalNN):
         # step
         self.optimizer.zero_grad()
         total_loss.backward()
+        print(logit[:, :self.last_valid_out_dim].requires_grad)
+        print(logit[:, :self.last_valid_out_dim].grad)
         self.optimizer.step()
 
         return total_loss.detach(), logit

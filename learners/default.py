@@ -150,7 +150,7 @@ class NormalNN(nn.Module):
     def update_model(self, inputs, targets):
 
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        logits = self.forward(inputs)
+        logits = self(inputs)
         total_loss = self.criterion(logits, targets.long(), dw_cls)
 
         self.optimizer.zero_grad()

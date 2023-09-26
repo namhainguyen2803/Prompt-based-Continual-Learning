@@ -374,7 +374,7 @@ class SpecificPrompt(AbstractPrompt):
         # prompt locations
         self.g_layers = []
         if prompt_param[2] > 0:
-            self.e_layers = [0, 1, 2, 3, 4]
+            self.e_layers = [0, 1, 2, 3, 4, 5]
         else:
             self.e_layers = [0]
 
