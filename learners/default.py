@@ -38,7 +38,7 @@ class NormalNN(nn.Module):
             self.dw = False
 
         # supervised criterion
-        self.criterion_fn = nn.CrossEntropyLoss(reduction='none')
+        self._create_criterion_fn()
 
         # cuda gpu
         if learner_config['gpuid'][0] >= 0:
@@ -63,6 +63,9 @@ class NormalNN(nn.Module):
     ##########################################
     #           MODEL TRAINING               #
     ##########################################
+
+    def _create_criterion_fn(self):
+        self.criterion_fn = nn.CrossEntropyLoss(reduction='none')
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
 
@@ -158,49 +161,46 @@ class NormalNN(nn.Module):
         self.optimizer.step()
         return total_loss.detach(), logits
 
-    def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True, task_global=False):
-
-        if model is None:
-            model = self.model
-
-        # This function doesn't distinguish tasks.
-        batch_timer = Timer()
-        acc = AverageMeter()
-        batch_timer.tic()
-
-        orig_mode = model.training
-        model.eval()
-        for i, (input, target, task) in enumerate(dataloader):
-
-            if self.gpu:
-                with torch.no_grad():
-                    input = input.cuda()
-                    target = target.cuda()
+    def _evaluate(self, model, input, target, task, acc, task_in=None):
+        with torch.no_grad():
             if task_in is None:
-                logit, _, _ = model(input)
-                output = logit[:, :self.valid_out_dim]
+                output = model(input)[:, :self.valid_out_dim]
                 acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
             else:
-                mask = target >= task_in[0]
-                mask_ind = mask.nonzero().view(-1)
-                input, target = input[mask_ind], target[mask_ind]
+                assert task_in is not None, "Wrong in _evaluate method."
+                output = model.forward(input)[:, task_in]
+                acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
+            return acc
 
-                mask = target < task_in[-1]
-                mask_ind = mask.nonzero().view(-1)
-                input, target = input[mask_ind], target[mask_ind]
+    def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True):
+        with torch.no_grad():
+            if model is None:
+                model = self.model
+            # This function doesn't distinguish tasks.
+            batch_timer = Timer()
+            acc = AverageMeter()
+            batch_timer.tic()
+            orig_mode = model.training
+            model.eval()
+            for i, (input, target, task) in enumerate(dataloader):
 
-                if len(target) > 1:
-                    if task_global:
-                        logit, _, _ = model(input)
-                        output = logit[:, :self.valid_out_dim]
-                        acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
-                    else:
-                        logit, _, _ = model(input)
-                        output = logit[:, task_in]
-                        acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
+                if self.gpu:
+                    with torch.no_grad():
+                        input = input.cuda()
+                        target = target.cuda()
+                if task_in is None:
+                    acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None)
+
+                else:
+                    mask = target >= task_in[0]
+                    mask_ind = mask.nonzero().view(-1)
+                    input, target = input[mask_ind], target[mask_ind]
+                    mask = target < task_in[-1]
+                    mask_ind = mask.nonzero().view(-1)
+                    input, target = input[mask_ind], target[mask_ind]
+                    acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in)
 
         model.train(orig_mode)
-
         if verbal:
             self.log(' * Val Acc {acc.avg:.3f}, Total time {time:.2f}'
                      .format(acc=acc, time=batch_timer.toc()))

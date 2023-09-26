@@ -32,6 +32,9 @@ class AbstractPrompt(nn.Module, ABC):
     def forward(self, x_query, l, x_block, train=False, task_id=None, prompt_type="tuning"):
         pass
 
+    def process_task_count(self):
+        self.task_count += 1
+
 
 class CodaPrompt(AbstractPrompt):
     def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
@@ -244,9 +247,6 @@ class DualPrompt(AbstractPrompt):
             setattr(self, f'e_p_{e}', p)
             setattr(self, f'e_k_{e}', k)
 
-    def process_task_count(self):
-        self.task_count += 1
-
     def forward(self, x_query, l, x_block, train=False, task_id=None, prompt_type="tuning"):
         p_return = None
         loss = 0
@@ -263,7 +263,7 @@ class DualPrompt(AbstractPrompt):
             q = nn.functional.normalize(x_query, dim=1).detach()
             # shape == (self.e_pool_size, self.e_p_length, self.embedding_dimension)
             cos_sim = torch.einsum('bj,kj->bk', q, n_K)
-# 001303019002
+            # 001303019002
             if train:
                 # dual prompt during training uses task id
                 if self.task_id_bootstrap:
@@ -369,12 +369,12 @@ class SpecificPrompt(AbstractPrompt):
         super().__init__(emb_d, n_tasks, prompt_param, key_dim)
 
     def _init_smart(self, emb_d, prompt_param):
-        self.top_k = 5
+        self.top_k = 3
 
         # prompt locations
         self.g_layers = []
-        if prompt_param[2] > 0:
-            self.e_layers = [0, 1, 2, 3, 4, 5]
+        if prompt_param[2] > 0: # deep prompt
+            self.e_layers = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
         else:
             self.e_layers = [0]
 
@@ -394,18 +394,18 @@ class SpecificPrompt(AbstractPrompt):
 
         if l in self.e_layers:
             B, C = x_query.shape
-            p = getattr(self, f'e_p_{l}') # shape == (num_task, e_p, emb_d)
+            p = getattr(self, f'e_p_{l}')  # shape == (num_task, e_p, emb_d)
 
-            if not isinstance(task_id, torch.Tensor): # convert to tensor
+            if not isinstance(task_id, torch.Tensor):  # convert to tensor
                 task_id = torch.tensor(task_id)
-            if task_id.ndim == 0: # if number then convert to array
+            if task_id.ndim == 0:  # if number then convert to array
                 task_id = task_id.unsqueeze(-1)
 
             if task_id.shape[0] == 1:
-                selected_prompt = p[task_id].expand(B, -1, -1) # shape == (B, e_p, emb_d)
+                selected_prompt = p[task_id].expand(B, -1, -1)  # shape == (B, e_p, emb_d)
             else:
                 assert task_id.shape[0] == B, "task_id.shape[0] != B."
-                selected_prompt = p[task_id] # shape == (B, e_p, emb_d)
+                selected_prompt = p[task_id]  # shape == (B, e_p, emb_d)
 
             assert selected_prompt.shape == (B, self.e_p_length, self.emb_d), \
                 "selected_prompt.shape != (B, self.e_p_length, self.emb_d)."
@@ -423,8 +423,7 @@ class SpecificPrompt(AbstractPrompt):
 
         return p_return, 0, x_block
 
-    def process_task_count(self):
-        self.task_count += 1
+
 
 
 # note - ortho init has not been found to help l2p/dual prompt
@@ -469,6 +468,8 @@ class ViTZoo(nn.Module):
             self.prompt = DualPrompt(768, prompt_param[0], prompt_param[1])
         elif self.prompt_flag == 'coda':
             self.prompt = CodaPrompt(768, prompt_param[0], prompt_param[1])
+        elif self.prompt_flag == 'cpp':
+            self.prompt = SpecificPrompt(768, prompt_param[0], prompt_param[1])
         else:
             self.prompt = None
 
@@ -484,7 +485,7 @@ class ViTZoo(nn.Module):
     def forward(self, x, get_logit=True, train=False, use_prompt=True, task_id=None, prompt_type="prefix"):
         prompt_loss = 0
         if self.prompt is not None and use_prompt is True:
-            q = self.get_feature_vector(x) # query
+            q = self.get_feature_vector(x)  # query
 
             if task_id is None:
                 tid = self.task_id
@@ -497,7 +498,7 @@ class ViTZoo(nn.Module):
         else:
             out = self.get_feature_vector(x)
 
-        out = out.view(out.size(0), -1) # last feature vector
+        out = out.view(out.size(0), -1)  # last feature vector
 
         if get_logit:
             logit = self.last(out)
