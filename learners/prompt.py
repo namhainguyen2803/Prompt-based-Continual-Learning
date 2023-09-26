@@ -19,9 +19,9 @@ class Prompt(NormalNN):
         logit = logit[:, :self.valid_out_dim]
 
         # ce with heuristic
-        logit[:, :self.last_valid_out_dim] = -float('inf')
+        # logit[:, :self.last_valid_out_dim] = -float('inf')
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        total_loss = self.criterion(logit, targets.long(), dw_cls)
+        total_loss = self.criterion(logit[:, self.last_valid_out_dim:], (targets - self.last_valid_out_dim).long(), dw_cls)
 
         # ce loss
         total_loss = total_loss + prompt_loss.sum()
@@ -29,8 +29,6 @@ class Prompt(NormalNN):
         # step
         self.optimizer.zero_grad()
         total_loss.backward()
-        print(logit[:, :self.last_valid_out_dim].requires_grad)
-        print(logit[:, :self.last_valid_out_dim].grad)
         self.optimizer.step()
 
         return total_loss.detach(), logit
