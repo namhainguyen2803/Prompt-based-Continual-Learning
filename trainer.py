@@ -111,6 +111,7 @@ class Trainer:
         self.lr = args.lr
         self.scheduler = args.schedule
         self.num_classes = num_classes
+        self.scheduler_type = args.schedule_type
         # Prepare the self.learner (model)
         self.learner_config = {'num_classes': num_classes,
                                'lr': args.lr,
@@ -167,7 +168,7 @@ class Trainer:
         print(f"Task logit: {self.tasks_logits}")
         print()
         print(f"Optimizer: {self.optimizer}, initial learning rate: {self.lr},")
-        print(f"batch size: {self.batch_size}, scheduler: {self.scheduler}")
+        print(f"batch size: {self.batch_size}, scheduler: {self.scheduler_type}")
         print()
         print(f"Prompt type: {self.prompt_type}, "
               f"prompt parameters: [e_pool_size, e_p_length, g_p_length]: {self.prompt_param}")

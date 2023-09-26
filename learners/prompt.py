@@ -332,7 +332,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             all_previous_value_prototype = nn.functional.normalize(all_previous_value_prototype, dim=1)
             check_tensor_nan(all_previous_value_prototype, "all_previous_value_prototype")
 
-        last_feature, prompt_loss = self.model(inputs, get_logit=False, train=True,
+        last_feature, _ = self.model(inputs, get_logit=False, train=True,
                                                use_prompt=True, task_id=None, prompt_type=prompt_type)
 
         check_tensor_nan(last_feature, "last_feature")

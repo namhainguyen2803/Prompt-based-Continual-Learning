@@ -96,16 +96,19 @@ class Attention(nn.Module):
             self.save_attention_map(attn)
             attn.register_hook(self.save_attn_gradients)
 
-        if prompt_type == "prefix":
+        if prompt is not None:
+            if prompt_type == "prefix":
+                x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+            elif prompt_type == "tuning":
+                prompt_length = prompt.shape[1]
+                x = (attn @ v).transpose(1, 2).reshape(B, N + prompt_length, C)
+        else:
             x = (attn @ v).transpose(1, 2).reshape(B, N, C)
-        elif prompt_type == "tuning":
-            prompt_length = prompt.shape[1]
-            x = (attn @ v).transpose(1, 2).reshape(B, N + prompt_length, C)
 
         x = self.proj(x)
         x = self.proj_drop(x)
 
-        if prompt_type == "tuning":  # if prompt tuning then the length of output is longer than prefix,
+        if prompt is not None and prompt_type == "tuning":  # if prompt tuning then the length of output is longer than prefix,
             # which the length of output remains
             prompt_length = prompt.shape[1]
             x = x[:, prompt_length:, :]

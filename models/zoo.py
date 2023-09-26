@@ -440,7 +440,7 @@ def tensor_prompt(a, b, c=None, ortho=False):
 
 
 class ViTZoo(nn.Module):
-    def __init__(self, num_classes=10, pt=True, prompt_flag=None, prompt_param=None):
+    def __init__(self, num_classes=10, pt=True, prompt_flag='l2p', prompt_param=None):
         super(ViTZoo, self).__init__()
 
         # get last layer
@@ -507,5 +507,5 @@ class ViTZoo(nn.Module):
             return out, prompt_loss
 
 
-def vit_pt_imnet(out_dim, prompt_flag='None', prompt_param=None):
+def vit_pt_imnet(out_dim, prompt_flag='l2p', prompt_param=None):
     return ViTZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param)
