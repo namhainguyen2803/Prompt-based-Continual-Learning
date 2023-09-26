@@ -77,7 +77,6 @@ class Attention(nn.Module):
                 length_pk = pk.shape[1]
                 length_pv = pv.shape[1]
                 qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-                pk = self.qkv(pk)
                 pk = self.qkv(pk).reshape(B, length_pk, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)[1]
                 # shape == (B, num_head, length_pk, C//num_head)
                 pv = self.qkv(pv).reshape(B, length_pv, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)[2]
