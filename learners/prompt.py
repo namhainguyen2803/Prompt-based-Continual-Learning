@@ -434,6 +434,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             num_element_correct_task = torch.sum(same)
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
+            flatten_possible_task_id = flatten_possible_task_id.squeeze(-1)
 
             inp = input.unsqueeze(0)
             input_repeat = inp.repeat(top_k, 1, 1, 1, 1)
@@ -441,8 +442,8 @@ class ContrastivePrototypicalPrompt(Prompt):
             input_repeat = input_repeat.reshape(-1, input_repeat.shape[2], input_repeat.shape[3], input_repeat.shape[4])
 
             # print(f"shape of input_repeat: {input_repeat.shape}")
-            last_feature, _ = self.model(input_repeat, pen=True, train=False, use_prompt=True,
-                                         possible_task_id=flatten_possible_task_id)
+            last_feature, _ = self.model(input_repeat, get_logit=False, train=False,
+                  use_prompt=True, task_id=flatten_possible_task_id, prompt_type=self.prompt_type)
             # last_feature.shape == (B * self.top_k, emb_d)
             # print(f"shape of last_feature: {last_feature.shape}")
             assert last_feature.shape == (B * top_k, self.model.prompt.emb_d), \
