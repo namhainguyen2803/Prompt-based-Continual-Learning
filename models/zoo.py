@@ -464,8 +464,7 @@ class ConcatenatedPrompt(AbstractPrompt):
         model_params = list()
         for l in self.e_layers:
             p = getattr(self, f'e_task_{task_id}_p_{l}')  # shape == (self.e_p_length, self.emb_d)
-            current_prompt_length = p.shape[0]
-            model = MLP(in_feature=self.emb_d, hidden_features=[1024], out_feature=self.emb_d)
+            model = MLP(in_feature=self.emb_d, hidden_features=[800, 800], out_feature=self.emb_d)
             setattr(self, f'model_p_{l}', model)
             model_params.extend(model.parameters())
         return model_params
@@ -487,7 +486,7 @@ class ConcatenatedPrompt(AbstractPrompt):
             B, C = x_query.shape
             p = getattr(self, f'e_task_{task_id}_p_{l}')  # shape == (num_task, e_p, emb_d)
             p = p.unsqueeze(0)
-            selected_prompt = p[task_id].expand(B, -1, -1)  # shape == (B, e_p, emb_d)
+            selected_prompt = p.expand(B, -1, -1)  # shape == (B, e_p, emb_d)
             if train:
                 model = getattr(self, f'model_p_{l}').cuda()
                 selected_prompt = selected_prompt + model(selected_prompt)

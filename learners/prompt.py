@@ -479,6 +479,7 @@ class ProgressivePrompt(Prompt):
 
     def __init__(self, learner_config):
         super(ProgressivePrompt, self).__init__(learner_config)
+        self.prompt_MLP_params = None
         self.classifier_dict = dict()
 
     def create_model(self):
@@ -488,22 +489,19 @@ class ProgressivePrompt(Prompt):
                                                                                prompt_param=self.prompt_param)
         return model
 
-    def _set_learnable_parameter(self, task_id=None, MLP_prompt=None):
+    def _set_learnable_parameter(self):
 
         if len(self.config['gpuid']) > 1:
             params_to_opt = list(self.model.module.prompt.parameters()) + \
-                            list(self.model.module.last.parameters()) + \
-                            MLP_prompt + list(self.classifier_dict[task_id].parameters())
+                            self.prompt_MLP_params + list(self.classifier_dict[self.model.task_id].parameters())
         else:
             params_to_opt = list(self.model.prompt.parameters()) + \
-                            list(self.model.last.parameters()) + \
-                            MLP_prompt + list(self.classifier_dict[task_id].parameters())
+                            self.prompt_MLP_params + list(self.classifier_dict[self.model.task_id].parameters())
         return params_to_opt
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
         self.create_classifier(self.model.task_id)
-        MLP_prompt_params = self.model.prompt.initialize_MLP_prompt(self.model.task_id)
-        self._set_learnable_parameter(self.model.task_id, MLP_prompt_params)
+        self.prompt_MLP_params = self.model.prompt.initialize_MLP_prompt(self.model.task_id)
         if not self.first_task:
             self.model.prompt.concatenate_prompt(self.model.task_id)
         super().learn_batch(train_loader, train_dataset, model_save_dir, val_loader)
@@ -511,8 +509,9 @@ class ProgressivePrompt(Prompt):
     def create_classifier(self, task_id):
         feature_dim = self.model.prompt.emb_d
         num_classes = len(self.tasks[task_id])
-        model = MLP(in_feature=feature_dim, hidden_features=[256], out_feature=num_classes, act_layer=nn.ReLU,
-                    drop=0.).cuda()
+        # model = MLP(in_feature=feature_dim, hidden_features=[256], out_feature=num_classes, act_layer=nn.ReLU,
+        #             drop=0.).cuda()
+        model = nn.Linear(in_features=feature_dim, out_features=num_classes).cuda()
         self.classifier_dict[task_id] = model
 
     def update_model(self, inputs, targets):
@@ -525,7 +524,7 @@ class ProgressivePrompt(Prompt):
         # ce with heuristic
         # logit[:, :self.last_valid_out_dim] = -float('inf')
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        total_loss = self.criterion(logit, (targets - self.last_valid_out_dim).long(), dw_cls)
+        total_loss = self.criterion(logit, targets.long(), dw_cls)
 
         # step
         self.optimizer.zero_grad()
@@ -537,7 +536,7 @@ class ProgressivePrompt(Prompt):
 
     def _evaluate(self, model, input, target, task, acc, task_in=None):
         with torch.no_grad():
-            task = torch.unique(task)
+            task = torch.unique(task)[0]
             if task_in is None:
                 logit, _, _ = model(input, get_logit=True, train=False, use_prompt=True,
                                     task_id=task, prompt_type=self.prompt_type)
@@ -550,7 +549,84 @@ class ProgressivePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
 
-    # def __evaluate(self, model, input, target, task, acc, task_in=None):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
+
+        # try to load model
+        need_train = True
+        if not self.overwrite:
+            try:
+                self.load_model(model_save_dir)
+                need_train = False
+            except:
+                pass
+
+        # trains
+        if self.reset_optimizer:  # Reset optimizer before learning each task
+            self.log('Optimizer is reset!')
+            self.init_optimizer()
+
+        if need_train:
+            # data weighting
+            self.data_weighting(train_dataset)
+            losses = AverageMeter()
+            acc = AverageMeter()
+            batch_time = AverageMeter()
+            batch_timer = Timer()
+            for epoch in range(self.config['schedule'][-1]):
+                self.epoch = epoch
+
+                if epoch > 0:
+                    self.scheduler.step()
+                for param_group in self.optimizer.param_groups:
+                    self.log('LR:', param_group['lr'])
+
+                batch_timer.tic()
+                for i, (x, y, task) in enumerate(train_loader):
+                    y = y - self.last_valid_out_dim
+                    # verify in train mode
+                    self.model.train()
+
+                    # send data to gpu
+                    if self.gpu:
+                        x = x.cuda()
+                        y = y.cuda()
+
+                    # model update
+                    loss, output = self.update_model(x, y)
+
+                    # measure elapsed time
+                    batch_time.update(batch_timer.toc())
+                    batch_timer.tic()
+
+                    # measure accuracy and record loss
+                    y = y.detach()
+                    accumulate_acc(output, y, task, acc, topk=(self.top_k,))
+                    losses.update(loss, y.size(0))
+                    batch_timer.tic()
+
+                # eval update
+                self.log(
+                    'Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=self.epoch + 1, total=self.config['schedule'][-1]))
+                self.log(' * Loss {loss.avg:.3f} | Train Acc {acc.avg:.3f}'.format(loss=losses, acc=acc))
+
+                # reset
+                losses = AverageMeter()
+                acc = AverageMeter()
+
+        self.model.eval()
+
+        self.last_valid_out_dim = self.valid_out_dim
+        self.first_task = False
+
+        # Extend memory
+        self.task_count += 1
+        if self.memory_size > 0:
+            train_dataset.update_coreset(self.memory_size, np.arange(self.last_valid_out_dim))
+
+        try:
+            return batch_time.avg
+        except:
+            return None
 
 
 def check_tensor_nan(tensor, tensor_name="a"):
