@@ -528,6 +528,8 @@ class ProgressivePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
 
+    # def __evaluate(self, model, input, target, task, acc, task_in=None):
+
 def check_tensor_nan(tensor, tensor_name="a"):
     has_nan = torch.isnan(tensor).any().item()
     if has_nan:
