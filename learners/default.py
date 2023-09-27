@@ -164,11 +164,13 @@ class NormalNN(nn.Module):
     def _evaluate(self, model, input, target, task, acc, task_in=None):
         with torch.no_grad():
             if task_in is None:
-                output = model(input)[:, :self.valid_out_dim]
+                logit, _, _ = model(input)
+                output = logit[:, :self.valid_out_dim]
                 acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
             else:
                 assert task_in is not None, "Wrong in _evaluate method."
-                output = model.forward(input)[:, task_in]
+                logit, _, _ = model(input)
+                output = logit[:, task_in]
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
 

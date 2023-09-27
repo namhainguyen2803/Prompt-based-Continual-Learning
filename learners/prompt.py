@@ -474,6 +474,60 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.MLP_neck = EmbeddingMLP().cuda()
 
 
+class ProgressivePrompt(Prompt):
+
+    def __init__(self, learner_config):
+        super(ProgressivePrompt, self).__init__(learner_config)
+
+    def create_model(self):
+        cfg = self.config
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag='concat',
+                                                                               prompt_param=self.prompt_param)
+        return model
+
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
+
+        if not self.first_task:
+            self.model.prompt.concatenate_prompt(self.model.task_id)
+
+        super().learn_batch(train_loader, train_dataset, model_save_dir, val_loader)
+
+    def update_model(self, inputs, targets):
+
+
+        logit, _, _ = self.model(x=inputs, get_logit=True, train=True,
+                                           use_prompt=True, task_id=None, prompt_type=self.prompt_type)
+        logit = logit[:, :self.valid_out_dim]
+
+        # ce with heuristic
+        # logit[:, :self.last_valid_out_dim] = -float('inf')
+        dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
+        total_loss = self.criterion(logit[:, self.last_valid_out_dim:], (targets - self.last_valid_out_dim).long(),
+                                    dw_cls)
+
+        # step
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.model.prompt.freeze_previous_prompt(self.model.task_id)
+        self.optimizer.step()
+
+        return total_loss.detach(), logit
+
+    def _evaluate(self, model, input, target, task, acc, task_in=None):
+        with torch.no_grad():
+            task = torch.unique(task)
+            if task_in is None:
+                logit, _, _ = model(input, get_logit=True, train=False, use_prompt=True,
+                                    task_id=task, prompt_type=self.prompt_type)
+                output = logit[:, :self.valid_out_dim]
+                acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
+            else:
+                logit, _, _ = model(input, get_logit=True, train=False, use_prompt=True,
+                                    task_id=task, prompt_type=self.prompt_type)
+                output = logit[:, task_in]
+                acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
+            return acc
+
 def check_tensor_nan(tensor, tensor_name="a"):
     has_nan = torch.isnan(tensor).any().item()
     if has_nan:

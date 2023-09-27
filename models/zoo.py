@@ -373,7 +373,7 @@ class SpecificPrompt(AbstractPrompt):
 
         # prompt locations
         self.g_layers = []
-        if prompt_param[2] > 0: # deep prompt
+        if prompt_param[2] > 0:  # deep prompt
             self.e_layers = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
         else:
             self.e_layers = [0]
@@ -424,6 +424,72 @@ class SpecificPrompt(AbstractPrompt):
         return p_return, 0, x_block
 
 
+class ConcatenatedPrompt(AbstractPrompt):
+
+    def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
+        super(ConcatenatedPrompt, self).__init__(emb_d, n_tasks, prompt_param, key_dim)
+
+    def _init_smart(self, emb_d, prompt_param):
+        self.top_k = 3
+
+        # prompt locations
+        self.g_layers = []
+        if prompt_param[2] > 0:  # deep prompt
+            self.e_layers = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        else:
+            self.e_layers = [0]
+
+        # prompt pool size
+        self.g_p_length = -1
+        self.e_p_length = int(prompt_param[1])
+        self.e_pool_size = int(prompt_param[0])
+
+        # e prompt init
+        for t in range(self.e_pool_size):
+            for e in self.e_layers:
+                p = tensor_prompt(self.e_p_length, self.emb_d)
+                setattr(self, f'e_task_{t}_p_{e}', p)
+
+    def concatenate_prompt(self, task_id):
+        prev_concat_prompt = list()
+        for l in self.e_layers:
+            for t in range(task_id+1):
+                p = getattr(self, f'e_task_{t}_p_{l}') # shape == (self.e_p_length, self.emb_d)
+                prev_concat_prompt.append(p)
+            prev_concat_prompt = torch.cat(prev_concat_prompt, dim=0)
+            setattr(self, f'e_task_{task_id}_p_{l}', prev_concat_prompt)
+
+    def freeze_previous_prompt(self, task_id):
+        length_previous_prompt = self.e_p_length * task_id
+        for l in self.e_layers:
+            p = getattr(self, f'e_task_{task_id}_p_{l}')  # shape == (self.e_p_length, self.emb_d)
+            p[:length_previous_prompt, :].grad = 0
+
+    def forward(self, x_query, l, x_block, train=False, task_id=None, prompt_type="tuning"):
+
+        p_return = None
+
+        if l in self.e_layers:
+            if not isinstance(task_id, torch.Tensor):  # convert to tensor
+                task_id = torch.tensor(task_id)
+            assert task_id.ndim == 0, "task_id.ndim != 0."
+            B, C = x_query.shape
+            p = getattr(self, f'e_task_{task_id}_p_{l}')  # shape == (num_task, e_p, emb_d)
+            selected_prompt = p[task_id].expand(B, -1, -1)  # shape == (B, e_p, emb_d)
+            assert selected_prompt.shape == (B, self.e_p_length, self.emb_d), \
+                "selected_prompt.shape != (B, self.e_p_length, self.emb_d)."
+            # select prompts
+            if prompt_type == "prefix":
+                i = int(self.e_p_length / 2)
+                Ek = selected_prompt[:, :i, :].reshape(B, -1, self.emb_d)
+                Ev = selected_prompt[:, i:, :].reshape(B, -1, self.emb_d)
+                p_return = [Ek, Ev]
+            elif prompt_type == "tuning":
+                p_return = selected_prompt
+            else:
+                raise "Have not built prompt type other than tuning and prefix yet."
+
+        return p_return, 0, x_block
 
 
 # note - ortho init has not been found to help l2p/dual prompt
@@ -470,6 +536,8 @@ class ViTZoo(nn.Module):
             self.prompt = CodaPrompt(768, prompt_param[0], prompt_param[1])
         elif self.prompt_flag == 'cpp':
             self.prompt = SpecificPrompt(768, prompt_param[0], prompt_param[1])
+        elif self.prompt_flag == 'concat':
+            self.prompt = ConcatenatedPrompt(768, prompt_param[0], prompt_param[1])
         else:
             self.prompt = None
 
