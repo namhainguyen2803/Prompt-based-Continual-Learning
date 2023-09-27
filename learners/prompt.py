@@ -488,12 +488,24 @@ class ProgressivePrompt(Prompt):
                                                                                prompt_param=self.prompt_param)
         return model
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
+    def _set_learnable_parameter(self, task_id=None, MLP_prompt=None):
 
+        if len(self.config['gpuid']) > 1:
+            params_to_opt = list(self.model.module.prompt.parameters()) + \
+                            list(self.model.module.last.parameters()) + \
+                            MLP_prompt + list(self.classifier_dict[task_id].parameters())
+        else:
+            params_to_opt = list(self.model.prompt.parameters()) + \
+                            list(self.model.last.parameters()) + \
+                            MLP_prompt + list(self.classifier_dict[task_id].parameters())
+        return params_to_opt
+
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
+        self.create_classifier(self.model.task_id)
+        MLP_prompt_params = self.model.prompt.initialize_MLP_prompt(self.model.task_id)
+        self._set_learnable_parameter(self.model.task_id, MLP_prompt_params)
         if not self.first_task:
             self.model.prompt.concatenate_prompt(self.model.task_id)
-            self.model.prompt.initialize_MLP_prompt(self.model.task_id)
-
         super().learn_batch(train_loader, train_dataset, model_save_dir, val_loader)
 
     def create_classifier(self, task_id):
