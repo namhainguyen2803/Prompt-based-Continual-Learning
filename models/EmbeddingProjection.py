@@ -33,6 +33,6 @@ class MLP(nn.Module):
         return x
 
 
-def EmbeddingMLP():
-    model = MLP(in_feature=768, hidden_features=[2048, 2048], out_feature=768, act_layer=nn.ReLU, drop=0.)
+def EmbeddingMLP(in_feature=768, hidden_features=[2048, 2048], out_feature=768, drop=0.):
+    model = MLP(in_feature=in_feature, hidden_features=hidden_features, out_feature=out_feature, act_layer=nn.ReLU, drop=drop)
     return model

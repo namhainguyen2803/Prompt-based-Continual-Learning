@@ -10,6 +10,7 @@ from .vit import VisionTransformer
 from timm.models import vit_base_patch16_224
 import numpy as np
 import copy
+from EmbeddingProjection import MLP
 
 
 class AbstractPrompt(nn.Module, ABC):
@@ -451,19 +452,26 @@ class ConcatenatedPrompt(AbstractPrompt):
                 setattr(self, f'e_task_{t}_p_{e}', p)
 
     def concatenate_prompt(self, task_id):
-        prev_concat_prompt = list()
         for l in self.e_layers:
-            for t in range(task_id+1):
-                p = getattr(self, f'e_task_{t}_p_{l}') # shape == (self.e_p_length, self.emb_d)
-                prev_concat_prompt.append(p)
-            prev_concat_prompt = torch.cat(prev_concat_prompt, dim=0)
-            setattr(self, f'e_task_{task_id}_p_{l}', prev_concat_prompt)
+            curr_prompt = getattr(self, f'e_task_{task_id}_p_{l}')  # shape == (self.e_p_length, self.emb_d)
+            prev_prompt = getattr(self, f'e_task_{task_id-1}_p_{l}')  # shape == (self.e_p_length, self.emb_d)
+            concat_prompt = torch.cat((prev_prompt, curr_prompt), dim=0)
+            concat_prompt = nn.Parameter(concat_prompt)
+            setattr(self, f'e_task_{task_id}_p_{l}', concat_prompt)
+            print(f"Layer {l}, prompt shape: {concat_prompt.shape}")
+
+    def initialize_MLP_prompt(self, task_id):
+        for l in self.e_layers:
+            p = getattr(self, f'e_task_{task_id}_p_{l}')  # shape == (self.e_p_length, self.emb_d)
+            current_prompt_length = p.shape[0]
+            model = MLP(in_feature=self.e_p_length, hidden_features=[1024], out_feature=self.e_p_length)
+            setattr(self, f'model_p_{l}', model)
 
     def freeze_previous_prompt(self, task_id):
         length_previous_prompt = self.e_p_length * task_id
         for l in self.e_layers:
             p = getattr(self, f'e_task_{task_id}_p_{l}')  # shape == (self.e_p_length, self.emb_d)
-            p[:length_previous_prompt, :].grad = 0
+            p.grad[:length_previous_prompt, :].zero_()
 
     def forward(self, x_query, l, x_block, train=False, task_id=None, prompt_type="tuning"):
 
@@ -476,6 +484,9 @@ class ConcatenatedPrompt(AbstractPrompt):
             B, C = x_query.shape
             p = getattr(self, f'e_task_{task_id}_p_{l}')  # shape == (num_task, e_p, emb_d)
             selected_prompt = p[task_id].expand(B, -1, -1)  # shape == (B, e_p, emb_d)
+            if train:
+                model = getattr(self, f'model_p_{l}').cuda()
+                selected_prompt = selected_prompt + model(selected_prompt)
             assert selected_prompt.shape == (B, self.e_p_length, self.emb_d), \
                 "selected_prompt.shape != (B, self.e_p_length, self.emb_d)."
             # select prompts

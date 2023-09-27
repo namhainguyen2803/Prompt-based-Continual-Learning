@@ -9,7 +9,7 @@ from utils.metric import AverageMeter, Timer
 from utils.schedulers import CosineSchedule
 from .default import NormalNN, accumulate_acc
 from models.ClusterAlgorithm import KMeans
-from models.EmbeddingProjection import EmbeddingMLP
+from models.EmbeddingProjection import EmbeddingMLP, MLP
 
 
 class Prompt(NormalNN):
@@ -333,7 +333,7 @@ class ContrastivePrototypicalPrompt(Prompt):
             check_tensor_nan(all_previous_value_prototype, "all_previous_value_prototype")
 
         last_feature, _ = self.model(inputs, get_logit=False, train=True,
-                                               use_prompt=True, task_id=None, prompt_type=prompt_type)
+                                     use_prompt=True, task_id=None, prompt_type=prompt_type)
 
         check_tensor_nan(last_feature, "last_feature")
         z_feature = self.MLP_neck(last_feature)
@@ -380,8 +380,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                         target = target.cuda()
                 if task_in is None:
                     acc, correct_task, num_element = self._evaluate(model=model, input=input,
-                                                                        target=target, task=task,
-                                                                        acc=acc, task_in=None, U=U, U_hat=U_hat)
+                                                                    target=target, task=task,
+                                                                    acc=acc, task_in=None, U=U, U_hat=U_hat)
                 else:
                     mask = target >= task_in[0]
                     mask_ind = mask.nonzero().view(-1)
@@ -390,8 +390,8 @@ class ContrastivePrototypicalPrompt(Prompt):
                     mask_ind = mask.nonzero().view(-1)
                     input, target = input[mask_ind], target[mask_ind]
                     acc, correct_task, num_element = self._evaluate(model=model, input=input,
-                                                                        target=target, task=task, acc=acc,
-                                                                        task_in=task_in, U=U, U_hat=U_hat)
+                                                                    target=target, task=task, acc=acc,
+                                                                    task_in=task_in, U=U, U_hat=U_hat)
                 total_correct += correct_task
                 total_element += num_element
         model.train(orig_mode)
@@ -443,14 +443,15 @@ class ContrastivePrototypicalPrompt(Prompt):
 
             # print(f"shape of input_repeat: {input_repeat.shape}")
             last_feature, _ = self.model(input_repeat, get_logit=False, train=False,
-                  use_prompt=True, task_id=flatten_possible_task_id, prompt_type=self.prompt_type)
+                                         use_prompt=True, task_id=flatten_possible_task_id,
+                                         prompt_type=self.prompt_type)
             # last_feature.shape == (B * self.top_k, emb_d)
             # print(f"shape of last_feature: {last_feature.shape}")
             assert last_feature.shape == (B * top_k, self.model.prompt.emb_d), \
                 "last_feature.shape != (B * top_k, self.model.prompt.emb_d)."
             fine_grained_query = last_feature.reshape(B, top_k, self.model.prompt.emb_d)
 
-            n_U_hat = nn.functional.normalize(U_hat, dim=2)  # (num_classes, num_anchors, emb_d)
+            n_U_hat = nn.functional.normalize(U_hat, dim=-1)  # (num_classes, num_anchors, emb_d)
             n_fine_grained_query = nn.functional.normalize(fine_grained_query, dim=-1)  # (B, top_k, emb_d)
             assert n_fine_grained_query.shape == (B, top_k, self.model.prompt.emb_d), "Wrong in _evaluate method (2)."
 
@@ -478,10 +479,12 @@ class ProgressivePrompt(Prompt):
 
     def __init__(self, learner_config):
         super(ProgressivePrompt, self).__init__(learner_config)
+        self.classifier_dict = dict()
 
     def create_model(self):
         cfg = self.config
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag='concat',
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim,
+                                                                               prompt_flag='concat',
                                                                                prompt_param=self.prompt_param)
         return model
 
@@ -489,21 +492,28 @@ class ProgressivePrompt(Prompt):
 
         if not self.first_task:
             self.model.prompt.concatenate_prompt(self.model.task_id)
+            self.model.prompt.initialize_MLP_prompt(self.model.task_id)
 
         super().learn_batch(train_loader, train_dataset, model_save_dir, val_loader)
 
+    def create_classifier(self, task_id):
+        feature_dim = self.model.prompt.emb_d
+        num_classes = len(self.tasks[task_id])
+        model = MLP(in_feature=feature_dim, hidden_features=[256], out_feature=num_classes, act_layer=nn.ReLU,
+                    drop=0.).cuda()
+        self.classifier_dict[task_id] = model
+
     def update_model(self, inputs, targets):
 
+        feature, _ = self.model(x=inputs, get_logit=False, train=True,
+                                use_prompt=True, task_id=None, prompt_type=self.prompt_type)
 
-        logit, _, _ = self.model(x=inputs, get_logit=True, train=True,
-                                           use_prompt=True, task_id=None, prompt_type=self.prompt_type)
-        logit = logit[:, :self.valid_out_dim]
+        logit = self.classifier_dict[self.model.task_id](feature)
 
         # ce with heuristic
         # logit[:, :self.last_valid_out_dim] = -float('inf')
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        total_loss = self.criterion(logit[:, self.last_valid_out_dim:], (targets - self.last_valid_out_dim).long(),
-                                    dw_cls)
+        total_loss = self.criterion(logit, (targets - self.last_valid_out_dim).long(), dw_cls)
 
         # step
         self.optimizer.zero_grad()
@@ -529,6 +539,7 @@ class ProgressivePrompt(Prompt):
             return acc
 
     # def __evaluate(self, model, input, target, task, acc, task_in=None):
+
 
 def check_tensor_nan(tensor, tensor_name="a"):
     has_nan = torch.isnan(tensor).any().item()
