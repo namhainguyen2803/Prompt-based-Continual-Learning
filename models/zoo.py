@@ -10,7 +10,7 @@ from .vit import VisionTransformer
 from timm.models import vit_base_patch16_224
 import numpy as np
 import copy
-from EmbeddingProjection import MLP
+from models.EmbeddingProjection import MLP
 
 
 class AbstractPrompt(nn.Module, ABC):
@@ -436,7 +436,7 @@ class ConcatenatedPrompt(AbstractPrompt):
         # prompt locations
         self.g_layers = []
         if prompt_param[2] > 0:  # deep prompt
-            self.e_layers = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+            self.e_layers = [0, 1, 2]
         else:
             self.e_layers = [0]
 
@@ -490,7 +490,7 @@ class ConcatenatedPrompt(AbstractPrompt):
             if train:
                 model = getattr(self, f'model_p_{l}').cuda()
                 selected_prompt = selected_prompt + model(selected_prompt)
-            assert selected_prompt.shape == (B, self.e_p_length, self.emb_d), \
+            assert selected_prompt.shape == (B, self.e_p_length*(task_id+1), self.emb_d), \
                 "selected_prompt.shape != (B, self.e_p_length, self.emb_d)."
             # select prompts
             if prompt_type == "prefix":

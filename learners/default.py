@@ -67,7 +67,7 @@ class NormalNN(nn.Module):
     def _create_criterion_fn(self):
         self.criterion_fn = nn.CrossEntropyLoss(reduction='none')
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
 
         # try to load model
         need_train = True
@@ -100,7 +100,8 @@ class NormalNN(nn.Module):
 
                 batch_timer.tic()
                 for i, (x, y, task) in enumerate(train_loader):
-
+                    if normalize_target:
+                        y = y - self.last_valid_out_dim
                     # verify in train mode
                     self.model.train()
 
