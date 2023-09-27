@@ -464,7 +464,7 @@ class ConcatenatedPrompt(AbstractPrompt):
         model_params = list()
         for l in self.e_layers:
             p = getattr(self, f'e_task_{task_id}_p_{l}')  # shape == (self.e_p_length, self.emb_d)
-            model = MLP(in_feature=self.emb_d, hidden_features=[800, 800], out_feature=self.emb_d)
+            model = MLP(in_feature=self.emb_d, hidden_features=[800], out_feature=self.emb_d)
             setattr(self, f'model_p_{l}', model)
             model_params.extend(model.parameters())
         return model_params
