@@ -566,10 +566,8 @@ class GaussianFeaturePrompt(Prompt):
         return model
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True):
-        print("##### Attempt to update key prototype set. #####")
-        self._update_key_prototype(train_loader)
-        print("##### Finish updating key prototype set. #####")
         self.create_classifier(self.model.task_id)  # create classifier for each task
+        print(f"Create classifier for task id {self.model.task_id}")
         # learn prompt
         print()
         print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
