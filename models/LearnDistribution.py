@@ -21,7 +21,7 @@ class Gaussian:
 
     def _learn_covariance(self, data):
         cov = torch.cov(data.type(torch.float64))
-        cov = cov + self.EPSILON * torch.eye(cov.size(0), dtype=torch.float64)
+        cov = cov + self.EPSILON * torch.eye(cov.size(0), dtype=torch.float64).cuda()
         return cov
 
     def learn_distribution(self, data):
