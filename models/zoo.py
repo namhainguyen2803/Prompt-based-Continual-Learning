@@ -460,15 +460,6 @@ class ConcatenatedPrompt(AbstractPrompt):
             setattr(self, f'e_task_{task_id}_p_{l}', concat_prompt)
             print(f"Layer {l}, prompt shape: {concat_prompt.shape}")
 
-    def initialize_MLP_prompt(self, task_id):
-        model_params = list()
-        for l in self.e_layers:
-            p = getattr(self, f'e_task_{task_id}_p_{l}')  # shape == (self.e_p_length, self.emb_d)
-            model = MLP(in_feature=self.emb_d, hidden_features=[800], out_feature=self.emb_d)
-            setattr(self, f'model_p_{l}', model)
-            model_params.extend(model.parameters())
-        return model_params
-
     def freeze_previous_prompt(self, task_id):
         length_previous_prompt = self.e_p_length * task_id
         for l in self.e_layers:
@@ -487,9 +478,6 @@ class ConcatenatedPrompt(AbstractPrompt):
             p = getattr(self, f'e_task_{task_id}_p_{l}')  # shape == (num_task, e_p, emb_d)
             p = p.unsqueeze(0)
             selected_prompt = p.expand(B, -1, -1)  # shape == (B, e_p, emb_d)
-            if train:
-                model = getattr(self, f'model_p_{l}').cuda()
-                selected_prompt = selected_prompt + model(selected_prompt)
             assert selected_prompt.shape == (B, self.e_p_length*(task_id+1), self.emb_d), \
                 "selected_prompt.shape != (B, self.e_p_length, self.emb_d)."
             # select prompts

@@ -494,18 +494,15 @@ class ProgressivePrompt(Prompt):
 
         if len(self.config['gpuid']) > 1:
             params_to_opt = list(self.model.module.prompt.parameters()) + \
-                            self.prompt_MLP_params + \
                             list(self.classifier_dict[self.model.task_id].parameters())
         else:
             params_to_opt = list(self.model.prompt.parameters()) + \
-                            self.prompt_MLP_params + \
                             list(self.classifier_dict[self.model.task_id].parameters())
         return params_to_opt
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True):
         self.dict_last_valid_out_dim[self.model.task_id] = self.last_valid_out_dim
         self.create_classifier(self.model.task_id)
-        self.prompt_MLP_params = self.model.prompt.initialize_MLP_prompt(self.model.task_id)
         if not self.first_task:
             self.model.prompt.concatenate_prompt(self.model.task_id)
         super().learn_batch(train_loader=train_loader, train_dataset=train_dataset,
@@ -514,8 +511,6 @@ class ProgressivePrompt(Prompt):
     def create_classifier(self, task_id):
         feature_dim = self.model.prompt.emb_d
         num_classes = len(self.tasks[task_id])
-        # model = MLP(in_feature=feature_dim, hidden_features=[256], out_feature=num_classes, act_layer=nn.ReLU,
-        #             drop=0.).cuda()
         model = nn.Linear(in_features=feature_dim, out_features=num_classes).cuda()
         self.classifier_dict[task_id] = model
 
