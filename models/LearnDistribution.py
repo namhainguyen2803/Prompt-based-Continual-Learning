@@ -24,7 +24,7 @@ class Gaussian:
     def learn_distribution(self, data):
         self.mean = self._learn_mean(data)
         self.covariance = self._learn_covariance(data)
-        self.dist = torch.distributions.normal.Normal(loc=self.mean, scale=self.covariance)
+        self.dist = torch.distributions.multivariate_normal.MultivariateNormal(loc=self.mean, covariance_matrix=self.covariance)
 
     def sample(self, num_sample):
         return self.dist.sample(sample_shape=torch.Size([num_sample]))

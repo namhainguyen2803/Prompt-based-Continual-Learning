@@ -579,7 +579,6 @@ class GaussianFeaturePrompt(Prompt):
         self.create_classifier(self.model.task_id)  # create classifier for each task
         print(f"Create classifier for task id {self.model.task_id}")
         # learn prompt
-        print()
         print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
         super().learn_batch(train_loader=train_loader, train_dataset=train_dataset,
                             model_save_dir=model_save_dir, val_loader=val_loader, normalize_target=normalize_target)
