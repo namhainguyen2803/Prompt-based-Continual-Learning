@@ -16,6 +16,7 @@ class NormalNN(nn.Module):
     def __init__(self, learner_config):
 
         super(NormalNN, self).__init__()
+        self.dw_k = None
         self.epoch = None
         self.log = print
         self.config = learner_config
@@ -85,7 +86,6 @@ class NormalNN(nn.Module):
 
         if need_train:
             # data weighting
-            self.data_weighting(train_dataset)
             losses = AverageMeter()
             acc = AverageMeter()
             batch_time = AverageMeter()
@@ -147,15 +147,14 @@ class NormalNN(nn.Module):
         except:
             return None
 
-    def criterion(self, logits, targets, data_weights):
-        loss_supervised = (self.criterion_fn(logits, targets.long()) * data_weights).mean()
+    def criterion(self, logits, targets):
+        loss_supervised = self.criterion_fn(logits, targets.long()).mean()
         return loss_supervised
 
     def update_model(self, inputs, targets):
 
-        dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         logits = self(inputs)
-        total_loss = self.criterion(logits, targets.long(), dw_cls)
+        total_loss = self.criterion(logits, targets.long())
 
         self.optimizer.zero_grad()
         total_loss.backward()
@@ -212,14 +211,6 @@ class NormalNN(nn.Module):
     ##########################################
     #             MODEL UTILS                #
     ##########################################
-
-    # data weighting
-    def data_weighting(self, dataset, num_seen=None):
-        self.dw_k = torch.tensor(np.ones(self.valid_out_dim + 1, dtype=np.float32))
-        # cuda
-        if self.cuda:
-            self.dw_k = self.dw_k.cuda()
-
     def save_model(self, filename):
         model_state = self.model.state_dict()
         for key in model_state.keys():  # Always save it to cpu

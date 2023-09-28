@@ -29,9 +29,7 @@ class Prompt(NormalNN):
 
         # ce with heuristic
         # logit[:, :self.last_valid_out_dim] = -float('inf')
-        dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        total_loss = self.criterion(logit[:, self.last_valid_out_dim:], (targets - self.last_valid_out_dim).long(),
-                                    dw_cls)
+        total_loss = self.criterion(logit[:, self.last_valid_out_dim:], (targets - self.last_valid_out_dim).long())
 
         # ce loss
         total_loss = total_loss + prompt_loss.sum()
@@ -90,8 +88,8 @@ class Prompt(NormalNN):
                                                output_device=self.config['gpuid'][0])
         return self
 
-# class SpecificClassifierPrompt(NormalNN):
 
+# class SpecificClassifierPrompt(NormalNN):
 
 
 class CODAPrompt(Prompt):
@@ -527,8 +525,7 @@ class ProgressivePrompt(Prompt):
 
         # ce with heuristic
         # logit[:, :self.last_valid_out_dim] = -float('inf')
-        dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        total_loss = self.criterion(logit, targets.long(), dw_cls)
+        total_loss = self.criterion(logit, targets.long())
 
         # step
         self.optimizer.zero_grad()
@@ -632,8 +629,7 @@ class GaussianFeaturePrompt(Prompt):
         logit = self.classifier_dict[self.model.task_id](feature)
 
         # ce with heuristic
-        dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        total_loss = self.criterion(logit, targets.long(), dw_cls)
+        total_loss = self.criterion(logit, targets.long())
 
         # step
         self.optimizer.zero_grad()
@@ -690,7 +686,6 @@ class GaussianFeaturePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
 
-
     def learn_validation_classifier(self):
         self.create_validation_classifier()
         classifier_optimizer = torch.optim.Adam(params=self.validation_classifier.parameters(), lr=0.001)
@@ -709,15 +704,13 @@ class GaussianFeaturePrompt(Prompt):
                     y = y.cuda()
 
                 out = self.validation_classifier(x)
-                dw_cls = self.dw_k[-1 * torch.ones(y.size()).long()]
-                total_loss = self.criterion(out, y.long(), dw_cls)
+                total_loss = self.criterion(out, y.long())
                 classifier_optimizer.zero_grad()
                 total_loss.backward()
                 classifier_optimizer.step()
                 loss += total_loss.detach()
 
             print(f"Learning validation classifier..., iteration {iter}, loss function: {loss}")
-
 
     def _update_prototype_set(self, prototype_set, train_loader):
         with torch.no_grad():
