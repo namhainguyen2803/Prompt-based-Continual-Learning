@@ -692,7 +692,7 @@ class GaussianFeaturePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
 
-    def learn_validation_classifier(self, max_iter=10, lr=0.001):
+    def learn_validation_classifier(self, max_iter=20, lr=0.001):
         self.create_validation_classifier()
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
