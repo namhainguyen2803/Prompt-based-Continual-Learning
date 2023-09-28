@@ -31,4 +31,4 @@ class Gaussian:
 
 
 def get_learning_distribution_model():
-    return Gaussian
+    return Gaussian()
