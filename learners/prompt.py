@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import models
 from models.ContrastiveLoss import ContrastivePrototypicalLoss
+from models.LearnDistribution import get_learning_distribution_model
 from utils.metric import AverageMeter, Timer
 from utils.schedulers import CosineSchedule
 from .default import NormalNN, accumulate_acc
@@ -540,15 +541,201 @@ class ProgressivePrompt(Prompt):
             last_valid = self.dict_last_valid_out_dim[task]
             if task_in is None:
                 feature, _ = model(input, get_logit=False, train=False, use_prompt=True,
-                                    task_id=task, prompt_type=self.prompt_type)
+                                   task_id=task, prompt_type=self.prompt_type)
                 output = self.classifier_dict[task](feature)
-                acc = accumulate_acc(output, target-last_valid, task, acc, topk=(self.top_k,))
+                acc = accumulate_acc(output, target - last_valid, task, acc, topk=(self.top_k,))
             else:
                 feature, _ = model(input, get_logit=True, train=False, use_prompt=True,
-                                    task_id=task, prompt_type=self.prompt_type)
+                                   task_id=task, prompt_type=self.prompt_type)
                 output = self.classifier_dict[task](feature)
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
+
+
+class GaussianFeaturePrompt(Prompt):
+    def __init__(self, learner_config):
+        super(GaussianFeaturePrompt, self).__init__(learner_config)
+        self.classifier_dict = dict()
+        self.distribution = dict()
+        self.validation_classifier = None
+
+    def create_model(self):
+        cfg = self.config
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag='cpp',
+                                                                               prompt_param=self.prompt_param)
+        return model
+
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True):
+        print("##### Attempt to update key prototype set. #####")
+        self._update_key_prototype(train_loader)
+        print("##### Finish updating key prototype set. #####")
+        self.create_classifier(self.model.task_id)  # create classifier for each task
+        # learn prompt
+        print()
+        print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
+        super().learn_batch(train_loader=train_loader, train_dataset=train_dataset,
+                            model_save_dir=model_save_dir, val_loader=val_loader, normalize_target=normalize_target)
+        print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
+        print()
+        print(f"Start learning Gaussian distribution for each class of task id: {self.model.task_id}")
+        self.get_distribution(train_loader=train_loader)
+        print(f"Finish learning Gaussian distribution for each class of task id: {self.model.task_id}")
+
+    def get_distribution(self, train_loader):
+        """
+        Learn distribution for each class in current task
+        """
+        with torch.no_grad():
+            X = list()
+            Y = list()
+            for i, (x, y, task) in enumerate(train_loader):
+                # verify in train mode
+                self.model.train()
+                # send data to gpu
+                if self.gpu:
+                    x = x.cuda()
+                    y = y.cuda()
+                # model update
+                X.append(x)
+                y.append(y)
+            X = torch.cat(X, dim=0)
+            y = torch.cat(y, dim=0)
+
+            unique_Y = torch.unique(Y)
+
+            for label in unique_Y:
+                label = label.item()
+                dist = get_learning_distribution_model()
+                X_class = X[y == label]
+                feature, _ = self.model(x=X_class, get_logit=False, train=False,
+                                        use_prompt=True, task_id=None, prompt_type=self.prompt_type)
+                dist.learn_distribution(feature)
+                self.distribution[label] = dist
+
+    def update_model(self, inputs, targets):
+
+        feature, _ = self.model(x=inputs, get_logit=False, train=True,
+                                use_prompt=True, task_id=None, prompt_type=self.prompt_type)
+
+        logit = self.classifier_dict[self.model.task_id](feature)
+
+        # ce with heuristic
+        dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
+        total_loss = self.criterion(logit, targets.long(), dw_cls)
+
+        # step
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.optimizer.step()
+
+        return total_loss.detach(), logit
+
+    def _generate_synthesis_prototype(self, num_sample=100):
+        x_synthesis = list()
+        y_synthesis = list()
+        for label, dist in self.distribution.items():
+            x_sample = dist.sample(num_sample)
+            x_synthesis.append(x_sample)
+            y_sample = torch.ones(x_sample.shape[0]) * label
+            y_synthesis.append(y_sample)
+        x_synthesis = torch.cat(x_synthesis, dim=0)
+        y_synthesis = torch.cat(y_synthesis, dim=0)
+        return x_synthesis, y_synthesis
+
+    def data_generator(self, x_train, y_train, batch_size=256, randomize=False):
+        num_examples = len(x_train)
+        if batch_size is not None:
+            if randomize is True:
+                ind_arr = np.arange(num_examples)
+                np.random.shuffle(ind_arr)
+                x_train, y_train = x_train[ind_arr], y_train[ind_arr]
+            for idx in range(0, num_examples, batch_size):
+                idy = min(idx + batch_size, num_examples)
+                yield x_train[idx:idy], y_train[idx:idy]
+        else:
+            yield x_train, y_train
+
+    def create_validation_classifier(self):
+        feature_dim = self.model.prompt.emb_d
+        self.validation_classifier = nn.Linear(feature_dim, self.valid_out_dim).cuda()
+
+    def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True):
+        self.learn_validation_classifier()
+        super().validation(dataloader, model, task_in, task_metric, verbal)
+
+    def _evaluate(self, model, input, target, task, acc, task_in=None):
+        with torch.no_grad():
+            task = torch.unique(task)[0].item()
+            if task_in is None:
+                feature, _ = model(input, get_logit=False, train=False, use_prompt=True,
+                                   task_id=task, prompt_type=self.prompt_type)
+                output = self.validation_classifier(feature)
+                acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
+            else:
+                feature, _ = model(input, get_logit=True, train=False, use_prompt=True,
+                                   task_id=task, prompt_type=self.prompt_type)
+                output = self.validation_classifier(feature)
+                acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
+            return acc
+
+
+    def learn_validation_classifier(self):
+        self.create_validation_classifier()
+        classifier_optimizer = torch.optim.Adam(params=self.validation_classifier.parameters(), lr=0.001)
+        x_syn, y_syn = self._generate_synthesis_prototype()
+        data_loader = self.data_generator(x_syn, y_syn)
+        max_iter = 2
+        for iter in range(max_iter):
+            for (x, y) in data_loader:
+
+                if self.gpu:
+                    x = x.cuda()
+                    y = y.cuda()
+
+                out = self.validation_classifier(x)
+                dw_cls = self.dw_k[-1 * torch.ones(y.size()).long()]
+                total_loss = self.criterion(out, y.long(), dw_cls)
+                classifier_optimizer.zero_grad()
+                total_loss.backward()
+                classifier_optimizer.step()
+
+
+
+    def _update_prototype_set(self, prototype_set, train_loader):
+        with torch.no_grad():
+            list_last_feature = list()
+            list_output = list()
+            for i, (x, y, task) in enumerate(train_loader):
+                self.model.eval()
+                if self.gpu:
+                    x = x.cuda()
+                    y = y.cuda()
+                last_feature, _ = self.model(x, get_logit=False, train=False, use_prompt=False,
+                                             task_id=task, prompt_type=self.prompt_type)
+                list_last_feature.append(last_feature)
+                list_output.append(y)
+            last_features = torch.cat(list_last_feature, dim=0)
+            outputs = torch.cat(list_output, dim=0)
+            uni_output = sorted(torch.unique(outputs).tolist())
+            for class_id in uni_output:
+                cluster_algorithm = KMeans(num_classes=self._num_anchor_key_prototype_per_class)
+                feature_set_for_class_id = last_features[outputs == class_id]
+                assert feature_set_for_class_id.ndim == 2, "feature_set_for_class_id.ndim != 2."
+                cluster_algorithm.fit(feature_set_for_class_id)
+                prototype = cluster_algorithm.get_centroids()
+                prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
+                check_tensor_nan(prototype, "prototype")
+                check_tensor_nan(feature_set_for_class_id, "feature_set_for_class_id")
+            return prototype_set
+
+    def _update_key_prototype(self, train_loader):
+        self.key_prototype = self._update_prototype_set(prototype_set=self.key_prototype, train_loader=train_loader)
+
+    def create_classifier(self, task_id):
+        feature_dim = self.model.prompt.emb_d
+        num_classes = len(self.tasks[task_id])
+        model = nn.Linear(in_features=feature_dim, out_features=num_classes).cuda()
+        self.classifier_dict[task_id] = model
 
 
 def check_tensor_nan(tensor, tensor_name="a"):
