@@ -720,8 +720,10 @@ class GaussianFeaturePrompt(Prompt):
                     num_class_per_task = self.valid_out_dim // num_task_so_far
                     copied_out = copied_out.reshape(out.shape[0], num_task_so_far, num_class_per_task)
                     per_task_norm = torch.norm(copied_out, p=2, dim=-1, keepdim=True) + 1e-7
+                    print(per_task_norm.shape)
                     assert per_task_norm.shape == (out.shape[0], num_task_so_far), "per_task_norm.shape != (out.shape[0], num_task_so_far)."
                     norms = per_task_norm.mean(dim=-1, keepdim=True)
+                    print(norms.shape)
                     assert norms.shape == (out.shape[0], 1), "norms.shape != (out.shape[0], 1)."
                     out = torch.div(out, norms) / self.logit_norm
                 #############################################################
