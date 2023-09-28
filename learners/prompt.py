@@ -90,6 +90,9 @@ class Prompt(NormalNN):
                                                output_device=self.config['gpuid'][0])
         return self
 
+# class SpecificClassifierPrompt(NormalNN):
+
+
 
 class CODAPrompt(Prompt):
 
