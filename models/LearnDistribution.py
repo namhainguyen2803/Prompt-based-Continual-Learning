@@ -16,7 +16,7 @@ class Gaussian:
         return self.covariance
 
     def _learn_mean(self, data):
-        return torch.mean(data, dim=-1)
+        return torch.mean(data, dim=0)
 
     def _learn_covariance(self, data):
         return torch.cov(data)
