@@ -558,6 +558,8 @@ class GaussianFeaturePrompt(Prompt):
         self.classifier_dict = dict()
         self.distribution = dict()
         self.validation_classifier = None
+        self.logit_normalize = True
+        self.logit_norm = 0.1
 
     def create_model(self):
         cfg = self.config
@@ -587,7 +589,9 @@ class GaussianFeaturePrompt(Prompt):
         print(f"Start learning Gaussian distribution for each class of task id: {self.model.task_id}")
         self.get_distribution(train_loader=train_loader)
         print(f"Finish learning Gaussian distribution for each class of task id: {self.model.task_id}")
-
+        print(f"##### Attempt to learn validation classifier in task id: {self.model.task_id}. #####")
+        self.learn_validation_classifier()
+        print(f"##### Finish learning validation classifier in task id: {self.model.task_id}. #####")
     def get_distribution(self, train_loader):
         """
         Learn distribution for each class in current task
@@ -638,7 +642,7 @@ class GaussianFeaturePrompt(Prompt):
 
         return total_loss.detach(), logit
 
-    def _generate_synthesis_prototype(self, num_sample=100):
+    def _generate_synthesis_prototype(self, num_sample=256):
         x_synthesis = list()
         y_synthesis = list()
         for label, dist in self.distribution.items():
@@ -663,13 +667,15 @@ class GaussianFeaturePrompt(Prompt):
         else:
             yield x_train, y_train
 
-    def create_validation_classifier(self):
+    def create_validation_classifier(self, linear_model=True):
         feature_dim = self.model.prompt.emb_d
-        self.validation_classifier = nn.Linear(feature_dim, self.valid_out_dim).cuda()
+        if linear_model:
+            self.validation_classifier = nn.Linear(feature_dim, self.valid_out_dim).cuda()
+        else:
+            self.validation_classifier = MLP(in_feature= feature_dim, hidden_features=[256], out_feature=self.valid_out_dim).cuda()
 
     def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True):
-        self.learn_validation_classifier()
-        super().validation(dataloader, model, task_in, task_metric, verbal)
+        return super().validation(dataloader, model, task_in, task_metric, verbal)
 
     def _evaluate(self, model, input, target, task, acc, task_in=None):
         with torch.no_grad():
@@ -686,31 +692,47 @@ class GaussianFeaturePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
 
-    def learn_validation_classifier(self):
+    def learn_validation_classifier(self, max_iter=10, lr=0.001):
         self.create_validation_classifier()
-        classifier_optimizer = torch.optim.Adam(params=self.validation_classifier.parameters(), lr=0.001)
+        MAX_ITER = 10 if max_iter is None else max_iter
+        LR = 0.001 if lr is None else lr
+        classifier_optimizer = torch.optim.Adam(params=self.validation_classifier.parameters(), lr=LR)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=classifier_optimizer, T_max=MAX_ITER)
         print("Start synthesize prototype")
         x_syn, y_syn = self._generate_synthesis_prototype()
         print(f"Finish synthesizing prototype, which prototype shape: {x_syn.shape, y_syn.shape}")
-        max_iter = 2
         print("Learn validation classifier...")
         for iter in range(max_iter):
             loss = 0
+            if iter > 0:
+                scheduler.step()
             data_loader = self.data_generator(x_syn, y_syn)
             for (x, y) in data_loader:
-
                 if self.gpu:
                     x = x.cuda()
                     y = y.cuda()
-
                 out = self.validation_classifier(x)
+
+                #############################################################
+                if self.logit_normalize:
+                    copied_out = out.detach().clone()
+                    num_task_so_far = self.task_count + 1
+                    num_class_per_task = self.valid_out_dim // num_task_so_far
+                    copied_out = copied_out.reshape(out.shape[0], num_task_so_far, num_class_per_task)
+                    per_task_norm = torch.norm(copied_out, p=2, dim=-1, keepdim=True) + 1e-7
+                    assert per_task_norm.shape == (out.shape[0], num_task_so_far), "per_task_norm.shape != (out.shape[0], num_task_so_far)."
+                    norms = per_task_norm.mean(dim=-1, keepdim=True)
+                    assert norms.shape == (out.shape[0], 1), "norms.shape != (out.shape[0], 1)."
+                    out = torch.div(out, norms) / self.logit_norm
+                #############################################################
+
                 total_loss = self.criterion(out, y.long())
                 classifier_optimizer.zero_grad()
                 total_loss.backward()
                 classifier_optimizer.step()
                 loss += total_loss.detach()
 
-            print(f"Learning validation classifier..., iteration {iter}, loss function: {loss}")
+            print(f"Learning validation classifier... iteration {iter}, loss function: {loss}")
 
     def _update_prototype_set(self, prototype_set, train_loader):
         with torch.no_grad():
