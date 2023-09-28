@@ -574,6 +574,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.avg_variance = prototype["variance"]
         self.log('=> Load Prototype Done')
 
+# class
 
 def check_tensor_nan(tensor, tensor_name="a"):
     has_nan = torch.isnan(tensor).any().item()

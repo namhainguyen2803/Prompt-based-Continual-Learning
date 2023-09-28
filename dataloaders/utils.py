@@ -47,21 +47,23 @@ dataset_stats = {
                 }
 
 # transformations
-def get_transform(dataset='cifar100', phase='test', aug=True, resize_imnet=False):
+def get_transform(dataset='CIFAR100', phase='test', aug=True, resize_imnet=False):
     transform_list = []
     # get out size
     crop_size = dataset_stats[dataset]['size']
 
     # get mean and std
-    dset_mean = (0.0,0.0,0.0) # dataset_stats[dataset]['mean']
-    dset_std = (1.0,1.0,1.0) # dataset_stats[dataset]['std']
+    # dset_mean = (0.0,0.0,0.0) # dataset_stats[dataset]['mean']
+    dset_mean = dataset_stats[dataset]['mean']
+    dset_std = dataset_stats[dataset]['std']
+    # dset_std = (1.0,1.0,1.0) # dataset_stats[dataset]['std']
 
     if dataset == "CIFAR100":
         if phase == 'train':
             transform_list.extend([
-                transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
+                transforms.RandomResizedCrop(224),
                 transforms.RandomHorizontalFlip(p=0.5),
-                ColorJitter(brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1, p=0.8),
+                ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1, p=0.8),
                 transforms.RandomGrayscale(p=0.2),
                 transforms.RandomApply([transforms.GaussianBlur(23, sigma=(0.1, 2.0))], p=0.1),
                 transforms.RandomSolarize(0.2),
