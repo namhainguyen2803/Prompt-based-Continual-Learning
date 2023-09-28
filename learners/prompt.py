@@ -565,6 +565,16 @@ class GaussianFeaturePrompt(Prompt):
                                                                                prompt_param=self.prompt_param)
         return model
 
+    def _set_learnable_parameter(self):
+
+        if len(self.config['gpuid']) > 1:
+            params_to_opt = list(self.model.module.prompt.parameters()) + \
+                            list(self.classifier_dict[self.model.task_id].parameters())
+        else:
+            params_to_opt = list(self.model.prompt.parameters()) + \
+                            list(self.classifier_dict[self.model.task_id].parameters())
+        return params_to_opt
+
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True):
         self.create_classifier(self.model.task_id)  # create classifier for each task
         print(f"Create classifier for task id {self.model.task_id}")
@@ -584,8 +594,8 @@ class GaussianFeaturePrompt(Prompt):
         Learn distribution for each class in current task
         """
         with torch.no_grad():
-            X = list()
-            Y = list()
+            all_x = list()
+            all_y = list()
             for i, (x, y, task) in enumerate(train_loader):
                 # verify in train mode
                 self.model.train()
@@ -594,20 +604,22 @@ class GaussianFeaturePrompt(Prompt):
                     x = x.cuda()
                     y = y.cuda()
                 # model update
-                X.append(x)
-                y.append(y)
-            X = torch.cat(X, dim=0)
-            y = torch.cat(y, dim=0)
+                all_x.append(x)
+                all_y.append(y)
+            all_x = torch.cat(all_x, dim=0)
+            all_y = torch.cat(all_y, dim=0)
 
-            unique_Y = torch.unique(Y)
+            unique_Y = torch.unique(all_y)
 
             for label in unique_Y:
                 label = label.item()
                 dist = get_learning_distribution_model()
-                X_class = X[y == label]
+                X_class = all_x[all_y == label]
                 feature, _ = self.model(x=X_class, get_logit=False, train=False,
                                         use_prompt=True, task_id=None, prompt_type=self.prompt_type)
                 dist.learn_distribution(feature)
+                check_tensor_nan(dist.get_mean(), f"mean of label {label}")
+                check_tensor_nan(dist.get_covariance(), f"covariance of label {label}")
                 self.distribution[label] = dist
 
     def update_model(self, inputs, targets):
