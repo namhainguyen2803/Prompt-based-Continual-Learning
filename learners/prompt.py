@@ -680,10 +680,14 @@ class GaussianFeaturePrompt(Prompt):
     def learn_validation_classifier(self):
         self.create_validation_classifier()
         classifier_optimizer = torch.optim.Adam(params=self.validation_classifier.parameters(), lr=0.001)
+        print("Start synthesize prototype")
         x_syn, y_syn = self._generate_synthesis_prototype()
-        data_loader = self.data_generator(x_syn, y_syn)
+        print(f"Finish synthesizing prototype, which prototype shape: {x_syn.shape, y_syn.shape}")
         max_iter = 2
+        print("Learn validation classifier...")
         for iter in range(max_iter):
+            loss = 0
+            data_loader = self.data_generator(x_syn, y_syn)
             for (x, y) in data_loader:
 
                 if self.gpu:
@@ -696,7 +700,9 @@ class GaussianFeaturePrompt(Prompt):
                 classifier_optimizer.zero_grad()
                 total_loss.backward()
                 classifier_optimizer.step()
+                loss += total_loss.detach()
 
+            print(f"Learning validation classifier..., iteration {iter}, loss function: {loss}")
 
 
     def _update_prototype_set(self, prototype_set, train_loader):
