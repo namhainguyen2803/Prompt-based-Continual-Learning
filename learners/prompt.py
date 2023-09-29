@@ -692,7 +692,7 @@ class GaussianFeaturePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
 
-    def learn_validation_classifier(self, max_iter=20, lr=0.001):
+    def learn_validation_classifier(self, max_iter=30, lr=0.001):
         self.create_validation_classifier()
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
@@ -716,7 +716,7 @@ class GaussianFeaturePrompt(Prompt):
                 #############################################################
                 if self.logit_normalize:
                     copied_out = out.detach().clone()
-                    num_task_so_far = self.task_count + 1
+                    num_task_so_far = self.task_count
                     num_class_per_task = self.valid_out_dim // num_task_so_far
                     copied_out = copied_out.reshape(out.shape[0], num_task_so_far, num_class_per_task)
                     per_task_norm = torch.norm(copied_out, p=2, dim=-1) + 1e-7
