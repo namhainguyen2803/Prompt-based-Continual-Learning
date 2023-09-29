@@ -91,8 +91,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
                 sigma_det = list_det[j]
                 c = 1. / torch.sqrt(sigma_det)
                 x_mu = data - mu[j, :]
-                p_z_given_x[:, j] = c * torch.exp((-0.5) * torch.diag(x_mu.dot(sigma_inv).dot(x_mu.T))) * pi[j]
-
+                p_z_given_x[:, j] = c * torch.exp((-0.5) * torch.diag(torch.matmul(torch.matmul(x_mu, sigma_inv), x_mu.T))) * pi[j]
             p_z_given_x = p_z_given_x / torch.sum(p_z_given_x, dim=1, keepdim=True)
             # M step
             pi = (1 / self.num_clusters) * torch.sum(p_z_given_x, dim=0)  # shape == (self.num_clusters)
