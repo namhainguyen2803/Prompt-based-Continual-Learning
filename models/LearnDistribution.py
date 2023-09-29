@@ -26,17 +26,17 @@ class Gaussian(AbstractLearningDistributionMethod):
         self.EPSILON = 1e-4
 
     def _learn_mean(self, data):
-        return torch.mean(data.type(torch.float64), dim=0)
+        return torch.mean(data, dim=0)
 
     def _learn_covariance(self, data):
-        cov = torch.cov(data.type(torch.float64))
-        cov = cov + self.EPSILON * torch.eye(cov.size(0), dtype=torch.float64).cuda()
+        cov = torch.cov(data)
+        cov = cov + self.EPSILON * torch.eye(cov.size(0)).cuda()
         return cov
 
     def learn_distribution(self, data):
         self.mean = self._learn_mean(data)
         self.covariance = self._learn_covariance(data.T)
-        self.dist = MultivariateNormal(loc=self.mean.float(), covariance_matrix=self.covariance.float())
+        self.dist = MultivariateNormal(loc=self.mean, covariance_matrix=self.covariance)
 
     def sample(self, num_sample):
         return self.dist.sample(sample_shape=(num_sample,))
@@ -62,8 +62,8 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         num_instances = data.shape[0]
         num_features = data.shape[1]
 
-        sigma = torch.zeros(self.num_clusters, num_features, num_features, dtype=torch.float64).cuda()
-        pi = torch.ones(self.num_clusters, dtype=torch.float64).fill_(1 / self.num_clusters).cuda()
+        sigma = torch.zeros(self.num_clusters, num_features, num_features).cuda()
+        pi = torch.ones(self.num_clusters).fill_(1 / self.num_clusters).cuda()
         mu = self._initialize_set_mean(data).cuda()  # (num_clusters, num_features)
         self._init_mu = copy.deepcopy(mu)
         for i in range(self.num_clusters):
