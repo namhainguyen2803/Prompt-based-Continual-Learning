@@ -616,7 +616,7 @@ class GaussianFeaturePrompt(Prompt):
 
             for label in unique_Y:
                 label = label.item()
-                dist = get_learning_distribution_model()
+                dist = get_learning_distribution_model(model_type="gmm")
                 X_class = all_x[all_y == label]
                 feature, _ = self.model(x=X_class, get_logit=False, train=False,
                                         use_prompt=True, task_id=None, prompt_type=self.prompt_type)
@@ -690,8 +690,8 @@ class GaussianFeaturePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
 
-    def learn_validation_classifier(self, max_iter=20, lr=0.001):
-        self.create_validation_classifier()
+    def learn_validation_classifier(self, max_iter=50, lr=0.001):
+        self.create_validation_classifier(linear_model=False)
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
         classifier_optimizer = torch.optim.Adam(params=self.validation_classifier.parameters(), lr=LR)
