@@ -621,8 +621,6 @@ class GaussianFeaturePrompt(Prompt):
                 feature, _ = self.model(x=X_class, get_logit=False, train=False,
                                         use_prompt=True, task_id=None, prompt_type=self.prompt_type)
                 dist.learn_distribution(feature)
-                check_tensor_nan(dist.get_mean(), f"mean of label {label}")
-                check_tensor_nan(dist.get_covariance(), f"covariance of label {label}")
                 self.distribution[label] = dist
 
     def update_model(self, inputs, targets):
@@ -692,7 +690,7 @@ class GaussianFeaturePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
 
-    def learn_validation_classifier(self, max_iter=30, lr=0.001):
+    def learn_validation_classifier(self, max_iter=20, lr=0.001):
         self.create_validation_classifier()
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
@@ -720,10 +718,9 @@ class GaussianFeaturePrompt(Prompt):
                     num_class_per_task = self.valid_out_dim // num_task_so_far
                     copied_out = copied_out.reshape(out.shape[0], num_task_so_far, num_class_per_task)
                     per_task_norm = torch.norm(copied_out, p=2, dim=-1) + 1e-7
-                    # print(per_task_norm.shape)
-                    assert per_task_norm.shape == (out.shape[0], num_task_so_far), "per_task_norm.shape != (out.shape[0], num_task_so_far)."
+                    assert per_task_norm.shape == (out.shape[0], num_task_so_far), \
+                        "per_task_norm.shape != (out.shape[0], num_task_so_far)."
                     norms = per_task_norm.mean(dim=-1, keepdim=True)
-                    # print(norms.shape)
                     assert norms.shape == (out.shape[0], 1), "norms.shape != (out.shape[0], 1)."
                     out = torch.div(out, norms) / self.logit_norm
                 #############################################################
@@ -733,8 +730,8 @@ class GaussianFeaturePrompt(Prompt):
                 total_loss.backward()
                 classifier_optimizer.step()
                 loss += total_loss.detach()
-
-            print(f"Learning validation classifier... iteration {iter}, loss function: {loss}")
+            if iter % 10:
+                print(f"Learning validation classifier... iteration {iter}, loss function: {loss}")
 
     def _update_prototype_set(self, prototype_set, train_loader):
         with torch.no_grad():

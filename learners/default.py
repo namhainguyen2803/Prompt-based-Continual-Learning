@@ -16,7 +16,6 @@ class NormalNN(nn.Module):
     def __init__(self, learner_config):
 
         super(NormalNN, self).__init__()
-        self.dw_k = None
         self.epoch = None
         self.log = print
         self.config = learner_config
@@ -57,9 +56,6 @@ class NormalNN(nn.Module):
         # set up schedules
         self.schedule_type = self.config['schedule_type']
         self.schedule = self.config['schedule']
-
-        # initialize optimizer
-        # self.init_optimizer()
 
     ##########################################
     #           MODEL TRAINING               #
