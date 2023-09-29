@@ -100,7 +100,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
                 mu[j, :] = torch.sum(p_z_given_x[:, j].reshape(-1, 1) * data, dim=0, keepdim=True) / \
                            torch.sum(p_z_given_x[:, j], dim=0, keepdim=True)
                 x_mu = data - mu[j, :].reshape(1, -1)
-                sigma[j, :, :] = (p_z_given_x[:, j].reshape(-1, 1) * x_mu).T.dot(x_mu) / \
+                sigma[j, :, :] = torch.matmul((p_z_given_x[:, j].reshape(-1, 1) * x_mu).T, x_mu) / \
                                  torch.sum(p_z_given_x[:, j], dim=0, keepdim=True)
 
         assert mu.shape == (self.num_clusters, num_features)
