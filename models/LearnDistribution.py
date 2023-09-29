@@ -104,7 +104,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
                                  torch.sum(p_z_given_x[:, j], dim=0, keepdim=True)
 
         assert mu.shape == (self.num_clusters, num_features)
-        assert pi.shape == (self.num_clusters)
+        assert pi.shape == (self.num_clusters,)
         assert sigma.shape == (self.num_clusters, num_features, num_features)
         self.mu = mu
         self.pi = pi
