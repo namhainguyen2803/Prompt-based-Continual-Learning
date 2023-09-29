@@ -68,7 +68,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         self._init_mu = copy.deepcopy(mu)
         for i in range(self.num_clusters):
             A = torch.randn(num_features, num_features).cuda()
-            sigma[i, :] = A.dot(A.T)
+            sigma[i, :, :] = torch.matmul(A, A.T)
 
         return mu, sigma, pi
 
