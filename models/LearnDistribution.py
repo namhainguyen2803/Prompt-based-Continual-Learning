@@ -79,9 +79,9 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
                                            self.n_features), "Input mu_init does not have required tensor dimensions (1, %i, %i)" % (
                 self.n_components, self.n_features)
             # (1, k, d)
-            self.mu = torch.nn.Parameter(self.mu_init, requires_grad=False)
+            self.mu = torch.nn.Parameter(self.mu_init, requires_grad=False).cuda()
         else:
-            self.mu = torch.nn.Parameter(torch.randn(1, self.n_components, self.n_features), requires_grad=False)
+            self.mu = torch.nn.Parameter(torch.randn(1, self.n_components, self.n_features), requires_grad=False).cuda()
 
         if self.covariance_type == "diag":
             if self.var_init is not None:
@@ -89,27 +89,26 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
                 assert self.var_init.size() == (1, self.n_components,
                                                 self.n_features), "Input var_init does not have required tensor dimensions (1, %i, %i)" % (
                     self.n_components, self.n_features)
-                self.var = torch.nn.Parameter(self.var_init, requires_grad=False)
+                self.var = torch.nn.Parameter(self.var_init, requires_grad=False).cuda()
             else:
-                self.var = torch.nn.Parameter(torch.ones(1, self.n_components, self.n_features), requires_grad=False)
+                self.var = torch.nn.Parameter(torch.ones(1, self.n_components, self.n_features), requires_grad=False).cuda()
         elif self.covariance_type == "full":
             if self.var_init is not None:
                 # (1, k, d, d)
                 assert self.var_init.size() == (1, self.n_components, self.n_features,
                                                 self.n_features), "Input var_init does not have required tensor dimensions (1, %i, %i, %i)" % (
                     self.n_components, self.n_features, self.n_features)
-                self.var = torch.nn.Parameter(self.var_init, requires_grad=False)
+                self.var = torch.nn.Parameter(self.var_init, requires_grad=False).cuda()
             else:
                 self.var = torch.nn.Parameter(
                     torch.eye(self.n_features).reshape(1, 1, self.n_features, self.n_features).repeat(1,
                                                                                                       self.n_components,
                                                                                                       1, 1),
-                    requires_grad=False
-                )
+                    requires_grad=False).cuda()
 
         # (1, k, 1)
         self.pi = torch.nn.Parameter(torch.Tensor(1, self.n_components, 1), requires_grad=False).fill_(
-            1. / self.n_components)
+            1. / self.n_components).cuda()
         self.params_fitted = False
 
     def check_size(self, x):
@@ -271,7 +270,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         mu = torch.sum(resp * x, dim=0, keepdim=True) / pi
 
         if self.covariance_type == "full":
-            eps = (torch.eye(self.n_features) * self.EPS).to(x.device)
+            eps = (torch.eye(self.n_features) * self.EPS).cuda()
             var = torch.sum((x - mu).unsqueeze(-1).matmul((x - mu).unsqueeze(-2)) * resp.unsqueeze(-1), dim=0,
                             keepdim=True) / torch.sum(resp, dim=0, keepdim=True).unsqueeze(-1) + eps
         elif self.covariance_type == "diag":
@@ -385,7 +384,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
 
 def calculate_matmul_n_times(n_components, mat_a, mat_b):
 
-    res = torch.zeros(mat_a.shape).to(mat_a.device)
+    res = torch.zeros(mat_a.shape).cuda()
 
     for i in range(n_components):
         mat_a_i = mat_a[:, i, :, :].squeeze(-2)  # (n, 1, d)
