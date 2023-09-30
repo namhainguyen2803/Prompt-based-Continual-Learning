@@ -7,7 +7,7 @@ import torch.nn as nn
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.distributions.categorical import Categorical
 from math import pi
-from models.ClusterAlgorithm import KMeans2, KMeans
+from models.ClusterAlgorithm import KMeans
 
 
 class AbstractLearningDistributionMethod(ABC, nn.Module):
@@ -72,19 +72,19 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         num_instances = data.shape[0]
         num_features = data.shape[1]
 
-        sigma = torch.zeros(self.num_clusters, num_features, num_features).cuda()
         pi = torch.ones(self.num_clusters).fill_(1 / self.num_clusters).cuda()
         mu = self._initialize_set_mean(data).cuda()  # (num_clusters, num_features)
         self._init_mu = copy.deepcopy(mu)
-        for i in range(self.num_clusters):
-            A = torch.randn(num_features, num_features).cuda()
-            sigma[i, :, :] = torch.matmul(A, A.T)
+        sigma = torch.eye(num_features).unsqueeze(0).repeat(self.num_clusters, -1, -1).cuda()
 
         return mu, sigma, pi
 
     def _calculate_difference_prior_mu_and_posterior_mu(self):
         mu_diff = self.mu - self._init_mu
         print(f"Relative difference between prior mu and posterior mu: {torch.max(torch.abs(mu_diff))}")
+
+    def log_prob(self, x):
+        pass
 
     def learn_distribution(self, data, epoch=200):
         num_instances = data.shape[0]
