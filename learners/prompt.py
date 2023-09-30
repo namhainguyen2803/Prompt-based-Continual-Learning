@@ -592,6 +592,7 @@ class GaussianFeaturePrompt(Prompt):
         print(f"##### Attempt to learn validation classifier in task id: {self.model.task_id}. #####")
         self.learn_validation_classifier()
         print(f"##### Finish learning validation classifier in task id: {self.model.task_id}. #####")
+
     def get_distribution(self, train_loader):
         """
         Learn distribution for each class in current task
@@ -602,15 +603,12 @@ class GaussianFeaturePrompt(Prompt):
             for i, (x, y, task) in enumerate(train_loader):
                 # verify in train mode
                 self.model.train()
-                # send data to gpu
-                if self.gpu:
-                    x = x.cuda()
-                    y = y.cuda()
+
                 # model update
                 all_x.append(x)
                 all_y.append(y)
-            all_x = torch.cat(all_x, dim=0)
-            all_y = torch.cat(all_y, dim=0)
+            all_x = torch.cat(all_x, dim=0).to('cpu')
+            all_y = torch.cat(all_y, dim=0).to('cpu')
 
             unique_Y = torch.unique(all_y)
 

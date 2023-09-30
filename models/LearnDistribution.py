@@ -38,7 +38,7 @@ class Gaussian(AbstractLearningDistributionMethod):
 
     def _learn_covariance(self, data):
         cov = torch.cov(data)
-        cov = cov + self.EPSILON * torch.eye(cov.size(0)).cuda()
+        cov = cov + self.EPSILON * torch.eye(cov.size(0))
         return cov
 
     def learn_distribution(self, data):
@@ -51,6 +51,7 @@ class Gaussian(AbstractLearningDistributionMethod):
 
     def score_samples(self, x):
         return self.dist.log_prob(x)
+
 
 class MixtureGaussian(AbstractLearningDistributionMethod):
 
@@ -83,47 +84,158 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         mu_diff = self.mu - self._init_mu
         print(f"Relative difference between prior mu and posterior mu: {torch.max(torch.abs(mu_diff))}")
 
-    def log_prob(self, x):
-        pass
+    def log_likelihood(self, data):
+        """
+        Computes log-likelihood of samples under the current model.
+        Parameters
+        ----------
+            data:          torch.Tensor (num_instances, num_features)
+
+        Returns
+        -------
+            log_prob:      torch.Tensor (num_instances, num_clusters)
+        """
+        num_instances = data.shape[0]
+        num_features = data.shape[1]
+        x_minus_mu_times_sigma = torch.zeros(num_instances, self.num_clusters, num_features).cuda()
+        list_det = torch.linalg.det(self.sigma)  # (num_cluster)
+        sigma_inv = torch.linalg.inv(self.sigma)  # (num_cluster, num_features, num_features)
+        x_minus_mu = data.unsqueeze(1) - self.mu.unsqueeze(0)  # (num_instance, num_cluster, num_features)
+        for c in range(self.num_clusters):
+            x_minus_mu_times_sigma[:, c, :] = torch.mm(x_minus_mu[:, c, :], sigma_inv[c, :, :])
+            # (num_instance, num_features) @ (num_features, num_features) = (num_instance, num_features)
+        assert x_minus_mu_times_sigma.shape == x_minus_mu.shape
+        x_minus_mu_times_sigma_times_x_minus_mu = torch.sum(x_minus_mu_times_sigma * x_minus_mu, dim=-1)
+        assert x_minus_mu_times_sigma_times_x_minus_mu.shape == (num_instances, self.num_clusters)
+
+        log_det = torch.log(list_det + self.EPS).reshape(1, -1)
+        log_manhattan_dist = x_minus_mu_times_sigma_times_x_minus_mu
+        log_pi = num_features * np.log(2 * torch.pi)
+        log_prob = (-0.5) * (log_manhattan_dist + log_det + log_pi)
+        return log_prob
+
+    def _calculate_prob_z_given_x(self, log_prob_x_and_z):
+        """
+        Handle numerical stability when calculating prob_z_given_x
+        Parameters
+        ----------
+        log_prob_x_and_z         torch.Tensor (num_instances, num_clusters)
+
+        Returns
+        -------
+        prob_z_given_x           torch.Tensor (num_instances, num_clusters)
+        """
+        max_element = torch.max(log_prob_x_and_z)
+        normalized_log_prob_x_and_z = log_prob_x_and_z - max_element
+        exp_normalized_log_prob_x_and_z = torch.exp(normalized_log_prob_x_and_z)
+        prob_z_given_x = exp_normalized_log_prob_x_and_z / torch.sum(exp_normalized_log_prob_x_and_z, dim=1).reshape(-1,
+                                                                                                                     1)
+        return prob_z_given_x
+
+    def log_joint_distribution(self, data):
+        """
+        Calculate log p(data, class)
+        Parameters
+        ----------
+        data                    torch.Tensor (num_instances, num_features)
+
+        Returns
+        -------
+        log_prob_x_and_z        torch.Tensor (num_instances, num_clusters)
+        """
+        log_p_x_given_z = self.log_likelihood(data)
+        log_pi = torch.log(self.pi + self.EPS).reshape(1, -1)
+        log_prob_x_and_z = log_p_x_given_z + log_pi
+        return log_prob_x_and_z
+
+    def log_marginal_distribution(self, data):
+        """
+        Calculate p(data)
+        Parameters
+        ----------
+        data              torch.Tensor (num_instances, num_features)
+
+        Returns
+        -------
+        log_prob_x        torch.Tensor (num_instances,)
+        """
+        return torch.sum(self.log_joint_distribution(data), dim=-1)
+
+    def posterior_distribution(self, data):
+        """
+        Calculate probability of each class given data p(class|data)
+        Parameters
+        ----------
+        data             torch.Tensor (num_instances, num_features)
+
+        Returns
+        -------
+        prob_z_given_x    torch.Tensor (num_instances, num_clusters)
+        """
+        log_p_x_given_z = self.log_likelihood(data)
+        log_pi = torch.log(self.pi + self.EPS).reshape(1, -1)
+        log_prob_x_and_z = log_p_x_given_z + log_pi
+        prob_z_given_x = self._calculate_prob_z_given_x(log_prob_x_and_z)
+        return prob_z_given_x
+
+    def _update_parameter(self, prob_z_given_x, data):
+        """
+        Update pi, mu, sigma based on posterior probability
+        Parameters
+        ----------
+        prob_z_given_x    torch.Tensor (num_instances, num_clusters)
+        data              torch.Tensor (num_instances, num_features)
+
+        Returns
+        -------
+        pi                torch.Tensor (num_clusters,)
+        mu                torch.Tensor (num_clusters, num_features)
+        var               torch.Tensor (num_features, num_features)
+        """
+        num_instances = data.shape[0]
+        num_features = data.shape[1]
+
+        unormalized_pi = torch.sum(prob_z_given_x, dim=0)
+        mu = torch.sum(prob_z_given_x.unsqueeze(-1) * data.unsqueeze(1), dim=0) / (
+                    unormalized_pi.reshape(-1, 1) + self.EPS)
+
+        x_minus_mu = data.unsqueeze(1) - mu.unsqueeze(0)  # (num_instances, num_clusters, num_features)
+        var = torch.matmul(x_minus_mu.transpose(-2, -1), (prob_z_given_x.unsqueeze(-1) * x_minus_mu)) / (
+                    unormalized_pi.reshape(-1, 1) + self.EPS)
+        pi = unormalized_pi / num_instances
+
+        return pi, mu, var
 
     def learn_distribution(self, data, epoch=200):
         num_instances = data.shape[0]
         num_features = data.shape[1]
-        mu, sigma, pi = self._initialize_parameters(data)
-        p_z_given_x = torch.zeros(num_instances, self.num_clusters).cuda()
+        self.mu, self.sigma, self.pi = self._initialize_parameters(data)
+
         it = 0
+        old_loss = -1e9
         while it < epoch:
             it += 1
             # E step
-            list_det = torch.linalg.det(sigma)
-            for j in range(self.num_clusters):
-                sigma_inv = torch.linalg.inv(sigma[j, :])
-                sigma_det = list_det[j]
-                c = 1. / torch.sqrt(sigma_det)
-                x_mu = data - mu[j, :]
-                p_z_given_x[:, j] = c * torch.exp((-0.5) * torch.diag(torch.matmul(torch.matmul(x_mu, sigma_inv), x_mu.T))) * pi[j]
-            p_z_given_x = p_z_given_x / torch.sum(p_z_given_x, dim=1, keepdim=True)
-            # M step
-            pi = (1 / self.num_clusters) * torch.sum(p_z_given_x, dim=0)  # shape == (self.num_clusters)
+            prob_z_given_x = self.posterior_distribution(data)
 
-            for j in range(self.num_clusters):
-                mu[j, :] = torch.sum(p_z_given_x[:, j].reshape(-1, 1) * data, dim=0, keepdim=True) / \
-                           torch.sum(p_z_given_x[:, j], dim=0, keepdim=True)
-                x_mu = data - mu[j, :].reshape(1, -1)
-                sigma[j, :, :] = torch.matmul((p_z_given_x[:, j].reshape(-1, 1) * x_mu).T, x_mu) / \
-                                 torch.sum(p_z_given_x[:, j], dim=0, keepdim=True)
+            pi, mu, var = self._update_parameter(prob_z_given_x, data)
 
-        assert mu.shape == (self.num_clusters, num_features)
-        assert pi.shape == (self.num_clusters,)
-        assert sigma.shape == (self.num_clusters, num_features, num_features)
-        self.mu = mu
-        self.pi = pi
-        self.sigma = sigma
+            self.pi = pi
+            self.mu = mu
+            self.var = var
+
+            assert self.mu.shape == (self.num_clusters, num_features)
+            assert self.pi.shape == (self.num_clusters,)
+            assert self.sigma.shape == (self.num_clusters, num_features, num_features)
+
+            log_p_x = self.log_marginal_distribution(data)
+
+            print(f"Check if new logP(x) > old logP(x): {log_p_x > old_loss}")
+
+
         for j in range(self.num_clusters):
-            gaussian = MultivariateNormal(loc=mu[j, :], covariance_matrix=sigma[j, :, :])
+            gaussian = MultivariateNormal(loc=self.mu[j, :], covariance_matrix=self.sigma[j, :, :])
             self.gaussian_list.append(gaussian)
-
-        self._calculate_difference_prior_mu_and_posterior_mu()
 
     def sample(self, num_sample):
         sample_list = list()
@@ -136,7 +248,6 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
                 sample_list.append(sample_set_per_cluster)
         sample_list = torch.cat(sample_list, dim=0)
         return sample_list
-
 
 
 def get_learning_distribution_model(model_type="gaussian"):
