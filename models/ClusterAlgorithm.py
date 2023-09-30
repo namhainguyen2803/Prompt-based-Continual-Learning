@@ -58,3 +58,50 @@ class KMeans():
         cluster_labels = torch.argmin(distance, dim=0)
 
         return cluster_labels
+
+
+class KMeans2():
+
+    def __init__(self, num_classes=5, max_iter=50):
+        self.init_times = max_iter
+        self.n_centers = num_classes
+        self.min_delta = 1e-3
+        self._centroids = None
+
+    def fit(self, x):
+        if len(x.size()) == 3:
+            x = x.squeeze(1)
+        x_min, x_max = x.min(), x.max()
+        x = (x - x_min) / (x_max - x_min)
+
+        min_cost = np.inf
+        center = None
+        for i in range(self.init_times):
+            tmp_center = x[np.random.choice(np.arange(x.shape[0]), size=self.n_centers, replace=False), ...]
+            l2_dis = torch.norm((x.unsqueeze(1).repeat(1, self.n_centers, 1) - tmp_center), p=2, dim=2)
+            l2_cls = torch.argmin(l2_dis, dim=1)
+
+            cost = 0
+            for c in range(self.n_centers):
+                cost += torch.norm(x[l2_cls == c] - tmp_center[c], p=2, dim=1).mean()
+
+            if cost < min_cost:
+                min_cost = cost
+                center = tmp_center
+
+        delta = np.inf
+
+        while delta > self.min_delta:
+            l2_dis = torch.norm((x.unsqueeze(1).repeat(1, self.n_centers, 1) - center), p=2, dim=2)
+            l2_cls = torch.argmin(l2_dis, dim=1)
+            center_old = center.clone()
+
+            for c in range(self.n_centers):
+                center[c] = x[l2_cls == c].mean(dim=0)
+
+            delta = torch.norm((center_old - center), dim=1).max()
+
+        self._centroids = center.unsqueeze(0) * (x_max - x_min) + x_min
+
+    def get_centroids(self):
+        return self._centroids

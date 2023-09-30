@@ -1,25 +1,33 @@
 import copy
 from abc import ABC, abstractmethod
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.distributions.categorical import Categorical
-from models.ClusterAlgorithm import KMeans
+from math import pi
+from models.ClusterAlgorithm import KMeans2, KMeans
 
 
-class AbstractLearningDistributionMethod(ABC):
+class AbstractLearningDistributionMethod(ABC, nn.Module):
     @abstractmethod
     def learn_distribution(self, data):
         pass
 
+    @abstractmethod
     def sample(self, num_sample):
+        pass
+
+    @abstractmethod
+    def score_samples(self, x):
         pass
 
 
 class Gaussian(AbstractLearningDistributionMethod):
 
     def __init__(self):
+        super(Gaussian, self).__init__()
         self.mean = None
         self.covariance = None
         self.dist = None
@@ -41,6 +49,8 @@ class Gaussian(AbstractLearningDistributionMethod):
     def sample(self, num_sample):
         return self.dist.sample(sample_shape=(num_sample,))
 
+    def score_samples(self, x):
+        return self.dist.log_prob(x)
 
 class MixtureGaussian(AbstractLearningDistributionMethod):
 
@@ -126,6 +136,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
                 sample_list.append(sample_set_per_cluster)
         sample_list = torch.cat(sample_list, dim=0)
         return sample_list
+
 
 
 def get_learning_distribution_model(model_type="gaussian"):
