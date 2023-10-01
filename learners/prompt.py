@@ -609,8 +609,8 @@ class GaussianFeaturePrompt(Prompt):
                 # model update
                 all_x.append(x)
                 all_y.append(y)
-            all_x = torch.cat(all_x, dim=0).to('cpu')
-            all_y = torch.cat(all_y, dim=0).to('cpu')
+            all_x = torch.cat(all_x, dim=0)
+            all_y = torch.cat(all_y, dim=0)
 
             unique_Y = torch.unique(all_y)
 
