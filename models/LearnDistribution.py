@@ -58,7 +58,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
 
     def __init__(self, num_clusters=5, covariance_type="full"):
         self.num_clusters = num_clusters
-        self.EPS = 1e-4
+        self.EPS = 1e-6
         self.mu = None
         self.pi = None
         self.sigma = None
@@ -151,7 +151,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
 
         return log_prob
 
-    def _calculate_prob_z_given_x(self, log_prob_x_and_z):
+    def _calculate_prob_z_given_x(self, log_prob_x_and_z, method=1):
         """
         Handle numerical stability when calculating prob_z_given_x
         Parameters
@@ -162,15 +162,19 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         -------
         prob_z_given_x           torch.Tensor (num_instances, num_clusters)
         """
-        max_element = torch.max(log_prob_x_and_z)
-        normalized_log_prob_x_and_z = log_prob_x_and_z - max_element
+        if method == 1:
+            max_element = torch.max(log_prob_x_and_z, dim=1).values
+            normalized_log_prob_x_and_z = log_prob_x_and_z - max_element.reshape(-1,1)
 
-        exp_normalized_log_prob_x_and_z = torch.exp(normalized_log_prob_x_and_z) + self.EPS
-        check_tensor_nan(exp_normalized_log_prob_x_and_z, "exp_normalized_log_prob_x_and_z")
-        check_tensor_nan(torch.sum(exp_normalized_log_prob_x_and_z, dim=1), "exp_normalized_log_prob_x_and_z (2)")
-        prob_z_given_x = exp_normalized_log_prob_x_and_z / torch.sum(exp_normalized_log_prob_x_and_z, dim=1).reshape(-1,
-                                                                                                                     1)
-        check_tensor_nan(prob_z_given_x, "prob_z_given_x")
+            exp_normalized_log_prob_x_and_z = torch.exp(normalized_log_prob_x_and_z) + self.EPS
+            check_tensor_nan(exp_normalized_log_prob_x_and_z, "exp_normalized_log_prob_x_and_z")
+            check_tensor_nan(torch.sum(exp_normalized_log_prob_x_and_z, dim=1), "exp_normalized_log_prob_x_and_z (2)")
+            prob_z_given_x = exp_normalized_log_prob_x_and_z / torch.sum(exp_normalized_log_prob_x_and_z, dim=1).reshape(-1, 1)
+            check_tensor_nan(prob_z_given_x, "prob_z_given_x")
+        else:
+            log_prob_norm = torch.logsumexp(log_prob_x_and_z, dim=1, keepdim=True)
+            log_prob_z_given_x = log_prob_x_and_z - log_prob_norm
+            prob_z_given_x = torch.exp(log_prob_z_given_x)
         return prob_z_given_x
 
     def log_joint_distribution(self, data):
@@ -262,8 +266,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         else:
             # (num_instances, num_clusters, num_features)
             X = torch.sum(prob_z_given_x.unsqueeze(-1) * data.unsqueeze(1) *
-                          (data.unsqueeze(1) - 2 * mu.unsqueeze(0)), dim=0) \
-                / unormalized_pi.reshape(-1, 1)
+                          (data.unsqueeze(1) - 2 * mu.unsqueeze(0)), dim=0) /unormalized_pi.reshape(-1, 1)
             sigma = X + mu * mu + self.EPS
             assert sigma.shape == (self.num_clusters, num_features)
 
