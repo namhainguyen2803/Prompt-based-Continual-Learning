@@ -200,9 +200,22 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         mu = torch.sum(prob_z_given_x.unsqueeze(-1) * data.unsqueeze(1), dim=0) / (
                     unormalized_pi.reshape(-1, 1) + self.EPS)
 
-        x_minus_mu = data.unsqueeze(1) - mu.unsqueeze(0)  # (num_instances, num_clusters, num_features)
-        var = torch.matmul(x_minus_mu.transpose(-2, -1), (prob_z_given_x.unsqueeze(-1) * x_minus_mu)) / (
-                    unormalized_pi.reshape(-1, 1) + self.EPS)
+        x_minus_mu = data.unsqueeze(1) - mu.unsqueeze(0)
+
+        # OPTION 1
+        # resp = prob_z_given_x.unsqueeze(-1)
+        # var_2 = torch.sum(x_minus_mu.unsqueeze(-1).matmul(x_minus_mu.unsqueeze(-2)) * resp.unsqueeze(-1), dim=0,
+        #                 keepdim=True) / torch.sum(resp, dim=0, keepdim=True).unsqueeze(-1)
+        # var_2 = var_2.squeeze(0)
+
+        # OPTION 2
+        var = torch.zeros(self.num_clusters, num_features, num_features)
+        for c in range(self.num_clusters):
+            cac = x_minus_mu[:, c, :] # (num_instances, num_features)
+            p = prob_z_given_x[:, c].reshape(-1, 1)
+            var[c,:,:] = torch.mm(cac.transpose(-2, -1), p*cac)
+
+        var = var / (unormalized_pi.reshape(-1, 1, 1))
         pi = unormalized_pi / num_instances
 
         return pi, mu, var
