@@ -244,7 +244,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
 
             log_p_x = self.log_marginal_distribution(data)
 
-            print(f"Check if new logP(x) > old logP(x): {log_p_x > old_loss}")
+            print(f"Check if new logP(x) > old logP(x): {torch.sum(log_p_x) > old_loss}")
 
 
         for j in range(self.num_clusters):
