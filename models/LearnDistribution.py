@@ -74,10 +74,10 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         num_instances = data.shape[0]
         num_features = data.shape[1]
 
-        pi = torch.ones(self.num_clusters).fill_(1 / self.num_clusters).cuda()
-        mu = self._initialize_set_mean(data).cuda()  # (num_clusters, num_features)
+        pi = torch.ones(self.num_clusters).fill_(1 / self.num_clusters)
+        mu = self._initialize_set_mean(data)  # (num_clusters, num_features)
         self._init_mu = copy.deepcopy(mu)
-        sigma = torch.eye(num_features).unsqueeze(0).repeat(self.num_clusters, -1, -1).cuda()
+        sigma = torch.eye(num_features).unsqueeze(0).repeat(self.num_clusters, 1, 1)
 
         return mu, sigma, pi
 
@@ -98,7 +98,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         """
         num_instances = data.shape[0]
         num_features = data.shape[1]
-        x_minus_mu_times_sigma = torch.zeros(num_instances, self.num_clusters, num_features).cuda()
+        x_minus_mu_times_sigma = torch.zeros(num_instances, self.num_clusters, num_features)
         list_det = torch.linalg.det(self.sigma)  # (num_cluster)
         sigma_inv = torch.linalg.inv(self.sigma)  # (num_cluster, num_features, num_features)
         x_minus_mu = data.unsqueeze(1) - self.mu.unsqueeze(0)  # (num_instance, num_cluster, num_features)
