@@ -85,7 +85,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
     def _log_det(self, var):
         log_det = torch.empty(size=(self.num_clusters,))
         for k in range(self.num_clusters):
-            log_det[k] = 2 * torch.log(torch.diagonal(torch.linalg.cholesky(var[k]))).sum()
+            log_det[k] = 2 * torch.log(torch.diagonal(torch.linalg.cholesky(var[k])) + self.EPS).sum()
         return log_det
 
     def log_likelihood(self, data):
@@ -186,7 +186,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         prob_z_given_x    torch.Tensor (num_instances, num_clusters)
         """
         log_p_x_given_z = self.log_likelihood(data)
-        log_pi = torch.log(self.pi).reshape(1, -1)
+        log_pi = torch.log(self.pi + self.EPS).reshape(1, -1)
         log_prob_x_and_z = log_p_x_given_z + log_pi
         prob_z_given_x = self._calculate_prob_z_given_x(log_prob_x_and_z)
 
