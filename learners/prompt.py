@@ -603,7 +603,9 @@ class GaussianFeaturePrompt(Prompt):
             for i, (x, y, task) in enumerate(train_loader):
                 # verify in train mode
                 self.model.train()
-
+                if self.gpu:
+                    x = x.cuda()
+                    y = y.cuda()
                 # model update
                 all_x.append(x)
                 all_y.append(y)
@@ -618,6 +620,7 @@ class GaussianFeaturePrompt(Prompt):
                 X_class = all_x[all_y == label]
                 feature, _ = self.model(x=X_class, get_logit=False, train=False,
                                         use_prompt=True, task_id=None, prompt_type=self.prompt_type)
+                feature = feature.cpu()
                 dist.learn_distribution(feature)
                 self.distribution[label] = dist
 
