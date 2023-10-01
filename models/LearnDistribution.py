@@ -115,10 +115,10 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         try:
             log_det = self._log_det(self.sigma).reshape(1, -1)
         except:
-            # self.sigma = (self.sigma + self.sigma.transpose(-2, -1))/2
-            # log_det = self._log_det(self.sigma).reshape(1, -1)
-            print(self.sigma)
-            raise TypeError("Cannot compute log_det")
+            self.sigma = (self.sigma + self.sigma.transpose(-2, -1))/2
+            log_det = self._log_det(self.sigma).reshape(1, -1)
+            # print(self.sigma)
+            # raise TypeError("Cannot compute log_det")
 
         log_pi = num_features * np.log(2 * torch.pi)
         log_prob = (-0.5) * (log_manhattan_dist + log_det + log_pi)
