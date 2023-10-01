@@ -128,7 +128,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         """
         max_element = torch.max(log_prob_x_and_z)
         normalized_log_prob_x_and_z = log_prob_x_and_z - max_element
-        exp_normalized_log_prob_x_and_z = torch.exp(normalized_log_prob_x_and_z)
+        exp_normalized_log_prob_x_and_z = torch.exp(normalized_log_prob_x_and_z) + self.EPS
         prob_z_given_x = exp_normalized_log_prob_x_and_z / torch.sum(exp_normalized_log_prob_x_and_z, dim=1).reshape(-1,
                                                                                                                      1)
         return prob_z_given_x
