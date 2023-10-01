@@ -10,7 +10,7 @@ from math import pi
 from models.ClusterAlgorithm import KMeans
 
 
-class AbstractLearningDistributionMethod(ABC, nn.Module):
+class AbstractLearningDistributionMethod(ABC):
     @abstractmethod
     def learn_distribution(self, data):
         pass
@@ -20,7 +20,7 @@ class AbstractLearningDistributionMethod(ABC, nn.Module):
         pass
 
     @abstractmethod
-    def score_samples(self, x):
+    def log_likelihood(self, x):
         pass
 
 
@@ -49,13 +49,14 @@ class Gaussian(AbstractLearningDistributionMethod):
     def sample(self, num_sample):
         return self.dist.sample(sample_shape=(num_sample,))
 
-    def score_samples(self, x):
+    def log_likelihood(self, x):
         return self.dist.log_prob(x)
 
 
 class MixtureGaussian(AbstractLearningDistributionMethod):
 
-    def __init__(self, num_clusters=5):
+    def __init__(self, num_clusters=5, *args, **kwargs):
+        super(MixtureGaussian, self).__init__(*args, **kwargs)
         self.num_clusters = num_clusters
         self.EPS = 1e-6
         self.mu = None
