@@ -253,6 +253,8 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
             self.mu = mu
             self.sigma = sigma
 
+            check_symmetric(self.sigma, "(sigma)")
+
             assert self.mu.shape == (self.num_clusters, num_features)
             assert self.pi.shape == (self.num_clusters,)
             assert self.sigma.shape == (self.num_clusters, num_features, num_features)
