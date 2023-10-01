@@ -242,9 +242,9 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
             assert self.pi.shape == (self.num_clusters,)
             assert self.sigma.shape == (self.num_clusters, num_features, num_features)
 
-            log_p_x = self.log_marginal_distribution(data)
-
-            print(f"Check if new logP(x) > old logP(x): {torch.sum(log_p_x) > old_loss}")
+            log_p_x = torch.sum(self.log_marginal_distribution(data))
+            print(f"Loss function: {log_p_x}. Check if new logP(x) > old logP(x): {log_p_x > old_loss}")
+            old_loss = log_p_x
 
 
         for j in range(self.num_clusters):

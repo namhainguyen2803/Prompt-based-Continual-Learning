@@ -621,7 +621,9 @@ class GaussianFeaturePrompt(Prompt):
                 feature, _ = self.model(x=X_class, get_logit=False, train=False,
                                         use_prompt=True, task_id=None, prompt_type=self.prompt_type)
                 feature = feature.cpu()
+                print(f"##### LEARN MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
                 dist.learn_distribution(feature)
+                print(f"##### FINISH LEARNING MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
                 self.distribution[label] = dist
 
     def update_model(self, inputs, targets):
