@@ -70,6 +70,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         k_means, loss = fit_kmeans_many_times(features_matrix=data, fit_times=50)
         # k_means = KMeans(num_classes=self.num_clusters, max_iter=1000)
         # k_means.fit(data)
+        check_tensor_nan(k_means.get_centroids(), "init_mu")
         return k_means.get_centroids()
 
     def _initialize_parameters(self, data):
@@ -111,7 +112,14 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         log_manhattan_dist = torch.sum(x_minus_mu_times_sigma * x_minus_mu, dim=-1)
         assert log_manhattan_dist.shape == (num_instances, self.num_clusters)
 
-        log_det = self._log_det(self.sigma).reshape(1, -1)
+        try:
+            log_det = self._log_det(self.sigma).reshape(1, -1)
+        except:
+            # self.sigma = (self.sigma + self.sigma.transpose(-2, -1))/2
+            # log_det = self._log_det(self.sigma).reshape(1, -1)
+            print(self.sigma)
+            raise TypeError("Cannot compute log_det")
+
         log_pi = num_features * np.log(2 * torch.pi)
         log_prob = (-0.5) * (log_manhattan_dist + log_det + log_pi)
         check_tensor_nan(log_prob, "log_prob")
@@ -252,7 +260,6 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
             check_tensor_nan(self.mu, "mu")
             check_tensor_nan(self.pi, "pi")
             check_tensor_nan(self.sigma, "sigma")
-
 
             log_p_x = torch.mean(self.log_marginal_distribution(data))
             diff_gap = log_p_x - old_loss
