@@ -117,7 +117,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         except:
             self.sigma = (self.sigma + self.sigma.transpose(-2, -1))/2
             log_det = self._log_det(self.sigma).reshape(1, -1)
-            # print(self.sigma)
+            print(f"Sigma is not symmetric due to numerical stability")
             # raise TypeError("Cannot compute log_det")
 
         log_pi = num_features * np.log(2 * torch.pi)
@@ -230,6 +230,8 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
             sigma[c, :, :] = torch.mm(cac.transpose(-2, -1), p * cac)
         sigma = sigma / (unormalized_pi.reshape(-1, 1, 1))
 
+        # det(A + delta) > det(A) given that delta is positive definite(?)
+        sigma += torch.eye(num_features).unsqueeze(0).repeat(self.num_clusters, 1, 1) * self.EPS
         pi = unormalized_pi / num_instances
 
         return pi, mu, sigma
