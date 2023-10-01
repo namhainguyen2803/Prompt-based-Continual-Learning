@@ -249,6 +249,11 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
             assert self.pi.shape == (self.num_clusters,)
             assert self.sigma.shape == (self.num_clusters, num_features, num_features)
 
+            check_tensor_nan(self.mu, "mu")
+            check_tensor_nan(self.pi, "pi")
+            check_tensor_nan(self.sigma, "sigma")
+
+
             log_p_x = torch.mean(self.log_marginal_distribution(data))
             diff_gap = log_p_x - old_loss
 
