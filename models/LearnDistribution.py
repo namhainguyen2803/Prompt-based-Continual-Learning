@@ -56,7 +56,7 @@ class Gaussian(AbstractLearningDistributionMethod):
 
 class MixtureGaussian(AbstractLearningDistributionMethod):
 
-    def __init__(self, num_clusters=5):
+    def __init__(self, num_clusters=5, covariance_type="full"):
         self.num_clusters = num_clusters
         self.EPS = 1e-4
         self.mu = None
@@ -65,6 +65,9 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         self.gaussian_list = list()
         self._init_mu = None
         self.diff_threshold = 1e-5
+
+        self.covariance_type = covariance_type
+        assert self.covariance_type in ["full", "diag"]
 
     def _initialize_set_mean(self, data):
         k_means, loss = fit_kmeans_many_times(features_matrix=data, fit_times=50)
@@ -80,7 +83,12 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         pi = torch.ones(self.num_clusters).fill_(1 / self.num_clusters)
         mu = self._initialize_set_mean(data)  # (num_clusters, num_features)
         self._init_mu = copy.deepcopy(mu)
-        sigma = torch.eye(num_features).unsqueeze(0).repeat(self.num_clusters, 1, 1)
+
+        if self.covariance_type == "full":
+            sigma = torch.eye(num_features).unsqueeze(0).repeat(self.num_clusters, 1, 1)
+        else:
+            sigma = torch.ones(self.num_clusters, num_features) # just store the diagonal matrix
+
         return mu, sigma, pi
 
     def _log_det(self, var):
@@ -102,27 +110,44 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         """
         num_instances = data.shape[0]
         num_features = data.shape[1]
-        x_minus_mu_times_sigma = torch.zeros(num_instances, self.num_clusters, num_features)
-        sigma_inv = torch.linalg.inv(self.sigma)  # (num_cluster, num_features, num_features)
-        x_minus_mu = data.unsqueeze(1) - self.mu.unsqueeze(0)  # (num_instance, num_cluster, num_features)
-        for c in range(self.num_clusters):
-            x_minus_mu_times_sigma[:, c, :] = torch.mm(x_minus_mu[:, c, :], sigma_inv[c, :, :])
-            # (num_instance, num_features) @ (num_features, num_features) = (num_instance, num_features)
-        assert x_minus_mu_times_sigma.shape == x_minus_mu.shape
-        log_manhattan_dist = torch.sum(x_minus_mu_times_sigma * x_minus_mu, dim=-1)
-        assert log_manhattan_dist.shape == (num_instances, self.num_clusters)
+        if self.covariance_type == "full":
+            x_minus_mu_times_sigma = torch.zeros(num_instances, self.num_clusters, num_features)
 
-        try:
-            log_det = self._log_det(self.sigma).reshape(1, -1)
-        except:
-            self.sigma = (self.sigma + self.sigma.transpose(-2, -1))/2
-            log_det = self._log_det(self.sigma).reshape(1, -1)
-            print(f"Sigma is not symmetric due to numerical stability")
-            # raise TypeError("Cannot compute log_det")
+            sigma_inv = torch.linalg.inv(self.sigma)  # (num_cluster, num_features, num_features)
+            check_tensor_nan(sigma_inv, "sigma_inv")
 
-        log_pi = num_features * np.log(2 * torch.pi)
-        log_prob = (-0.5) * (log_manhattan_dist + log_det + log_pi)
-        check_tensor_nan(log_prob, "log_prob")
+            x_minus_mu = data.unsqueeze(1) - self.mu.unsqueeze(0)  # (num_instance, num_cluster, num_features)
+            for c in range(self.num_clusters):
+                x_minus_mu_times_sigma[:, c, :] = torch.mm(x_minus_mu[:, c, :], sigma_inv[c, :, :])
+                # (num_instance, num_features) @ (num_features, num_features) = (num_instance, num_features)
+            assert x_minus_mu_times_sigma.shape == x_minus_mu.shape
+            log_manhattan_dist = torch.sum(x_minus_mu_times_sigma * x_minus_mu, dim=-1)
+            assert log_manhattan_dist.shape == (num_instances, self.num_clusters)
+
+            try:
+                log_det = self._log_det(self.sigma).reshape(1, -1)
+            except:
+                list_det = torch.linalg.det(self.sigma)  # (num_cluster,)
+                log_det = torch.log(list_det + self.EPS).reshape(1, -1)
+                check_tensor_nan(log_det, "log_det")
+                # self.sigma = (self.sigma + self.sigma.transpose(-2, -1))/2
+                # log_det = self._log_det(self.sigma).reshape(1, -1)
+                # print(f"Sigma is not symmetric due to numerical stability")
+                # # raise TypeError("Cannot compute log_det")
+
+            log_pi = num_features * np.log(2 * torch.pi)
+            log_prob = (-0.5) * (log_manhattan_dist + log_det + log_pi)
+            check_tensor_nan(log_prob, "log_prob")
+
+        else:
+            std = torch.rsqrt(self.sigma).unsqueeze(0) # (5, 768)
+            data = data.unsqueeze(1)
+            mu = self.mu.unsqueeze(0)
+
+            log_pi = num_features * np.log(2 * torch.pi)
+            log_manhattan_dist = torch.sum((mu * mu + data * data - 2 * data * mu) * std, dim=-1) # (num_instances, num_clusters)
+            log_det = torch.sum(torch.log(std), dim=-1) # (1, num_clusters)
+            log_prob = (-0.5) * (log_pi + log_manhattan_dist - log_det)
 
         return log_prob
 
@@ -223,15 +248,25 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
 
         x_minus_mu = data.unsqueeze(1) - mu.unsqueeze(0)
 
-        sigma = torch.zeros(self.num_clusters, num_features, num_features)
-        for c in range(self.num_clusters):
-            cac = x_minus_mu[:, c, :]  # (num_instances, num_features)
-            p = prob_z_given_x[:, c].reshape(-1, 1)
-            sigma[c, :, :] = torch.mm(cac.transpose(-2, -1), p * cac)
-        sigma = sigma / (unormalized_pi.reshape(-1, 1, 1))
+        if self.covariance_type == "full":
+            sigma = torch.zeros(self.num_clusters, num_features, num_features)
+            for c in range(self.num_clusters):
+                cac = x_minus_mu[:, c, :]  # (num_instances, num_features)
+                p = prob_z_given_x[:, c].reshape(-1, 1)
+                sigma[c, :, :] = torch.mm(cac.transpose(-2, -1), p * cac)
+            sigma = sigma / (unormalized_pi.reshape(-1, 1, 1))
 
-        # det(A + delta) > det(A) given that delta is positive definite(?)
-        sigma += torch.eye(num_features).unsqueeze(0).repeat(self.num_clusters, 1, 1) * self.EPS
+            # det(A + delta) > det(A) given that delta is positive definite(?)
+            sigma += torch.eye(num_features).unsqueeze(0).repeat(self.num_clusters, 1, 1) * self.EPS
+            assert sigma.shape == (self.num_clusters, num_features, num_features)
+        else:
+            # (num_instances, num_clusters, num_features)
+            X = torch.sum(prob_z_given_x.unsqueeze(-1) * data.unsqueeze(1) *
+                          (data.unsqueeze(1) - 2 * mu.unsqueeze(0)), dim=0) \
+                / unormalized_pi.reshape(-1, 1)
+            sigma = X + mu * mu + self.EPS
+            assert sigma.shape == (self.num_clusters, num_features)
+
         pi = unormalized_pi / num_instances
 
         return pi, mu, sigma
@@ -239,27 +274,34 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
     def learn_distribution(self, data, epoch=200):
         num_instances = data.shape[0]
         num_features = data.shape[1]
-        self.mu, self.sigma, self.pi = self._initialize_parameters(data)
+        mu, sigma, pi = self._initialize_parameters(data)
 
         it = 0
         old_loss = -1e9
 
+        self.pi = pi
+        self.mu = mu
+        self.sigma = sigma
+
         while it < epoch:
             it += 1
+            # old_pi = copy.deepcopy(self.pi)
+            # old_sigma = copy.deepcopy(self.sigma)
+            # old_mu = copy.deepcopy(self.mu)
+
             # E step
             prob_z_given_x = self.posterior_distribution(data)
-
             pi, mu, sigma = self._update_parameter(prob_z_given_x, data)
-
             self.pi = pi
             self.mu = mu
             self.sigma = sigma
 
-            check_symmetric(self.sigma, "(sigma)")
-
             assert self.mu.shape == (self.num_clusters, num_features)
             assert self.pi.shape == (self.num_clusters,)
-            assert self.sigma.shape == (self.num_clusters, num_features, num_features)
+            if self.covariance_type == "full":
+                assert self.sigma.shape == (self.num_clusters, num_features, num_features)
+            else:
+                assert self.sigma.shape == (self.num_clusters, num_features)
 
             check_tensor_nan(self.mu, "mu")
             check_tensor_nan(self.pi, "pi")
@@ -269,13 +311,22 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
             diff_gap = log_p_x - old_loss
 
             print(f"Iteration {it}. Loss function: {log_p_x}. Check if new logP(x) > old logP(x): {diff_gap}")
+
+            # if diff_gap < 0:
+            #     self.pi = old_pi
+            #     self.mu = old_mu
+            #     self.sigma = old_sigma
+
             if diff_gap < self.diff_threshold:
                 break
 
             old_loss = log_p_x
 
         for j in range(self.num_clusters):
-            gaussian = MultivariateNormal(loc=self.mu[j, :], covariance_matrix=self.sigma[j, :, :])
+            if self.covariance_type == "full":
+                gaussian = MultivariateNormal(loc=self.mu[j, :], covariance_matrix=self.sigma[j, :, :])
+            else:
+                gaussian = MultivariateNormal(loc=self.mu[j, :], covariance_matrix=torch.diag(self.sigma[j, :]))
             self.gaussian_list.append(gaussian)
 
     def sample(self, num_sample):
