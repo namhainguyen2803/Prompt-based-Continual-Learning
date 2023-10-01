@@ -58,7 +58,7 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
 
     def __init__(self, num_clusters=5):
         self.num_clusters = num_clusters
-        self.EPS = 1e-6
+        self.EPS = 1e-4
         self.mu = None
         self.pi = None
         self.sigma = None
