@@ -616,7 +616,7 @@ class GaussianFeaturePrompt(Prompt):
 
             for label in unique_Y:
                 label = label.item()
-                dist = get_learning_distribution_model(model_type="gmm")
+                dist = get_learning_distribution_model(model_type="gaussian")
                 X_class = all_x[all_y == label]
                 feature, _ = self.model(x=X_class, get_logit=False, train=False,
                                         use_prompt=True, task_id=None, prompt_type=self.prompt_type)
@@ -673,7 +673,7 @@ class GaussianFeaturePrompt(Prompt):
         if linear_model:
             self.validation_classifier = nn.Linear(feature_dim, self.valid_out_dim).cuda()
         else:
-            self.validation_classifier = MLP(in_feature= feature_dim, hidden_features=[1024, 1024], out_feature=self.valid_out_dim).cuda()
+            self.validation_classifier = MLP(in_feature= feature_dim, hidden_features=[1024], out_feature=self.valid_out_dim).cuda()
 
     def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True):
         return super().validation(dataloader, model, task_in, task_metric, verbal)
