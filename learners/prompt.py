@@ -673,7 +673,7 @@ class GaussianFeaturePrompt(Prompt):
         if linear_model:
             self.validation_classifier = nn.Linear(feature_dim, self.valid_out_dim).cuda()
         else:
-            self.validation_classifier = MLP(in_feature= feature_dim, hidden_features=[1024, 256], out_feature=self.valid_out_dim).cuda()
+            self.validation_classifier = MLP(in_feature= feature_dim, hidden_features=[1024, 1024], out_feature=self.valid_out_dim).cuda()
 
     def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True):
         return super().validation(dataloader, model, task_in, task_metric, verbal)
@@ -693,7 +693,7 @@ class GaussianFeaturePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
 
-    def learn_validation_classifier(self, max_iter=50, lr=0.001):
+    def learn_validation_classifier(self, max_iter=100, lr=0.0005):
         self.create_validation_classifier(linear_model=False)
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
@@ -702,9 +702,11 @@ class GaussianFeaturePrompt(Prompt):
         print("Start synthesize prototype")
         x_syn, y_syn = self._generate_synthesis_prototype()
         print(f"Finish synthesizing prototype, which prototype shape: {x_syn.shape, y_syn.shape}")
-        print("Learn validation classifier...")
+        print("Attempt to learn validation classifier...")
+        UPPER_THRESHOLD = 3
         for iter in range(max_iter):
             loss = 0
+            old_loss = 1e9
             if iter > 0:
                 scheduler.step()
             data_loader = self.data_generator(x_syn, y_syn, randomize=True)
@@ -733,8 +735,11 @@ class GaussianFeaturePrompt(Prompt):
                 total_loss.backward()
                 classifier_optimizer.step()
                 loss += total_loss.detach()
-            if iter % 10:
+            if iter % 20:
                 print(f"Learning validation classifier... iteration {iter}, loss function: {loss}")
+            if loss - old_loss > UPPER_THRESHOLD:
+                break
+            old_loss = loss
 
     def _update_prototype_set(self, prototype_set, train_loader):
         with torch.no_grad():

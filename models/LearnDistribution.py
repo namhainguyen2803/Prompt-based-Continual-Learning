@@ -70,9 +70,12 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         assert self.covariance_type in ["full", "diag"]
 
     def _initialize_set_mean(self, data):
-        k_means, loss = fit_kmeans_many_times(features_matrix=data, fit_times=50)
-        # k_means = KMeans(num_classes=self.num_clusters, max_iter=1000)
-        # k_means.fit(data)
+        param_kmeans = {
+            "num_classes": self.num_clusters,
+            "max_iter": 1000,
+            "init_times": 1
+        }
+        k_means, loss = fit_kmeans_many_times(features_matrix=data, fit_times=500, **param_kmeans)
         check_tensor_nan(k_means.get_centroids(), "init_mu")
         return k_means.get_centroids()
 
@@ -345,11 +348,19 @@ class MixtureGaussian(AbstractLearningDistributionMethod):
         return sample_list
 
 
-def get_learning_distribution_model(model_type="gaussian"):
+def get_learning_distribution_model(model_type="gaussian", **kwargs):
     if model_type == "gaussian":
         return Gaussian()
     elif model_type == "gmm":
-        return MixtureGaussian(num_clusters=8, covariance_type="diag")
+        if "num_clusters" in kwargs:
+            num_clusters = kwargs["num_clusters"]
+        else:
+            num_clusters = 8
+        if "covariance_type" in kwargs:
+            covariance_type = kwargs["covariance_type"]
+        else:
+            covariance_type = "diag"
+        return MixtureGaussian(num_clusters=num_clusters, covariance_type=covariance_type)
 
 
 def check_symmetric(mat, num):

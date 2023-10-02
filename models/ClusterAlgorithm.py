@@ -94,11 +94,23 @@ class KMeans():
         return cluster_labels
 
 
-def fit_kmeans_many_times(features_matrix, fit_times=50, init_times_for_each_kmeans=1):
+def fit_kmeans_many_times(features_matrix, fit_times=50, **kwargs):
     optimal_loss = 1e9
     optimal_model = None
+    if "num_classes" in kwargs:
+        num_classes = kwargs["num_classes"]
+    else:
+        num_classes = 5
+    if "max_iter" in kwargs:
+        max_iter = kwargs["max_iter"]
+    else:
+        max_iter = 1000
+    if "init_times" in kwargs:
+        init_times = kwargs["init_times"]
+    else:
+        init_times = 50
     for i in range(fit_times):
-        model = KMeans(init_times=init_times_for_each_kmeans)
+        model = KMeans(num_classes=num_classes, max_iter=max_iter, init_times=init_times)
         loss = model.fit(features_matrix)
         if loss < optimal_loss:
             optimal_loss = loss
