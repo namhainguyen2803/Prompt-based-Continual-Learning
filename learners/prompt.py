@@ -735,7 +735,7 @@ class GaussianFeaturePrompt(Prompt):
                 total_loss.backward()
                 classifier_optimizer.step()
                 loss += total_loss.detach()
-            if iter % 20:
+            if iter % 10:
                 print(f"Learning validation classifier... iteration {iter}, loss function: {loss}")
             if loss - old_loss > UPPER_THRESHOLD:
                 break
