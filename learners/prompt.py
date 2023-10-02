@@ -673,7 +673,7 @@ class GaussianFeaturePrompt(Prompt):
         if linear_model:
             self.validation_classifier = nn.Linear(feature_dim, self.valid_out_dim).cuda()
         else:
-            self.validation_classifier = MLP(in_feature= feature_dim, hidden_features=[256, 256, 256], out_feature=self.valid_out_dim).cuda()
+            self.validation_classifier = MLP(in_feature= feature_dim, hidden_features=[1024, 256], out_feature=self.valid_out_dim).cuda()
 
     def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True):
         return super().validation(dataloader, model, task_in, task_metric, verbal)
@@ -707,7 +707,7 @@ class GaussianFeaturePrompt(Prompt):
             loss = 0
             if iter > 0:
                 scheduler.step()
-            data_loader = self.data_generator(x_syn, y_syn)
+            data_loader = self.data_generator(x_syn, y_syn, randomize=True)
             for (x, y) in data_loader:
                 if self.gpu:
                     x = x.cuda()

@@ -349,7 +349,7 @@ def get_learning_distribution_model(model_type="gaussian"):
     if model_type == "gaussian":
         return Gaussian()
     elif model_type == "gmm":
-        return MixtureGaussian(covariance_type="diag")
+        return MixtureGaussian(num_clusters=8, covariance_type="diag")
 
 
 def check_symmetric(mat, num):
