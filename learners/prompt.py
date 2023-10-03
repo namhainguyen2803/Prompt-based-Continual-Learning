@@ -693,8 +693,8 @@ class GaussianFeaturePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
 
-    def learn_validation_classifier(self, max_iter=100, lr=0.001):
-        self.create_validation_classifier(linear_model=True)
+    def learn_validation_classifier(self, max_iter=25, lr=0.001):
+        self.create_validation_classifier(linear_model=False)
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
         classifier_optimizer = torch.optim.Adam(params=self.validation_classifier.parameters(), lr=LR)
@@ -735,7 +735,7 @@ class GaussianFeaturePrompt(Prompt):
                 total_loss.backward()
                 classifier_optimizer.step()
                 loss += total_loss.detach()
-            if iter % 10:
+            if iter % 1:
                 print(f"Learning validation classifier... iteration {iter}, loss function: {loss}")
             if loss - old_loss > UPPER_THRESHOLD:
                 break
