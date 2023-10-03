@@ -703,7 +703,7 @@ class GaussianFeaturePrompt(Prompt):
         x_syn, y_syn = self._generate_synthesis_prototype()
         print(f"Finish synthesizing prototype, which prototype shape: {x_syn.shape, y_syn.shape}")
         print("Attempt to learn validation classifier...")
-        UPPER_THRESHOLD = 3
+        UPPER_THRESHOLD = 0.25
         for iter in range(max_iter):
             loss = 0
             old_loss = 1e9
