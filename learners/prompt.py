@@ -644,13 +644,13 @@ class GaussianFeaturePrompt(Prompt):
 
         logit = self.classifier_dict[self.model.task_id](feature)
 
-        pseudo_mean = self.label_embedding(targets.unsqueeze(-1))
+        pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
 
         gaussian_penalty = (feature - pseudo_mean)**2
 
         # ce with heuristic
         # if self.model.task_id == 0:
-        total_loss = self.criterion(logit, targets.long()) + 0.001 * gaussian_penalty
+        total_loss = self.criterion(logit, targets.long()) + 0.001 * torch.mean(gaussian_penalty)
         # else:
         #     kl_div =
 
