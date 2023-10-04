@@ -691,7 +691,7 @@ class GaussianFeaturePrompt(Prompt):
     def create_label_embedding(self, task):
         task_info = self.tasks[task]
         num_classes = len(task_info)
-        self.label_embedding = nn.Linear(num_classes, self.model.feature_dim)
+        self.label_embedding = nn.Linear(num_classes, self.model.feature_dim).cuda()
         self.label_embedding_optim = torch.optim.Adam(lr=0.0005, params=self.label_embedding.parameters())
 
     def create_validation_classifier(self, linear_model=True):
