@@ -734,7 +734,7 @@ class GaussianFeaturePrompt(Prompt):
 
         # ce with heuristic
         # if self.model.task_id == 0:
-        total_loss = self.criterion(logit, targets.long()) + 0.001 * gaussian_penalty
+        total_loss = self.criterion(logit, targets.long()) + gaussian_penalty
         # else:
         #     kl_div =
 
