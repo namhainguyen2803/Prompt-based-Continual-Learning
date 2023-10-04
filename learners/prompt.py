@@ -630,6 +630,13 @@ class GaussianFeaturePrompt(Prompt):
                 print(f"##### FINISH LEARNING MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
                 self.distribution[label] = dist
 
+                feature, _ = self.model(x=X_class, get_logit=False, train=False, use_prompt=False)
+                mean_feature = torch.mean(feature, dim=0)
+
+                mean_diff = torch.dist(mean_feature, dist.mean)
+                print(f"In label {label}, difference between "
+                      f"mean of learned distribution and mean of feature vector without prompt: {mean_diff}")
+
     def update_model(self, inputs, targets):
 
         feature, _ = self.model(x=inputs, get_logit=False, train=True,
@@ -698,7 +705,7 @@ class GaussianFeaturePrompt(Prompt):
             return acc
 
     def learn_validation_classifier(self, max_iter=25, lr=0.001):
-        self.create_validation_classifier(linear_model=False)
+        self.create_validation_classifier(linear_model=True)
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
         classifier_optimizer = torch.optim.Adam(params=self.validation_classifier.parameters(), lr=LR)
@@ -739,7 +746,7 @@ class GaussianFeaturePrompt(Prompt):
                 total_loss.backward()
                 classifier_optimizer.step()
                 loss += total_loss.detach()
-            if iter % 1:
+            if iter % 1 == 0:
                 print(f"Learning validation classifier... iteration {iter}, loss function: {loss}")
             if loss - old_loss > UPPER_THRESHOLD:
                 break
