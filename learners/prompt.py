@@ -555,10 +555,15 @@ class ProgressivePrompt(Prompt):
 class GaussianFeaturePrompt(Prompt):
     def __init__(self, learner_config):
         super(GaussianFeaturePrompt, self).__init__(learner_config)
+
+        self.label_embedding_optim = None
         self.label_embedding = None
+
         self.classifier_dict = dict()
         self.distribution = dict()
+
         self.validation_classifier = None
+
         self.logit_normalize = True
         self.logit_norm = 0.1
 
@@ -580,6 +585,7 @@ class GaussianFeaturePrompt(Prompt):
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True):
         self.create_classifier(self.model.task_id)  # create classifier for each task
+        self.create_label_embedding(self.model.task_id)
         print(f"Create classifier for task id {self.model.task_id}")
         # learn prompt
         print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
@@ -646,12 +652,14 @@ class GaussianFeaturePrompt(Prompt):
         # if self.model.task_id == 0:
         total_loss = self.criterion(logit, targets.long()) + 0.001 * gaussian_penalty
         # else:
-        #     kl_div = 
+        #     kl_div =
 
         # step
         self.optimizer.zero_grad()
+        self.label_embedding_optim.zero_grad()
         total_loss.backward()
         self.optimizer.step()
+        self.label_embedding_optim.step()
 
         return total_loss.detach(), logit
 
@@ -684,6 +692,7 @@ class GaussianFeaturePrompt(Prompt):
         task_info = self.tasks[task]
         num_classes = len(task_info)
         self.label_embedding = nn.Linear(num_classes, self.model.feature_dim)
+        self.label_embedding_optim = torch.optim.Adam(lr=0.0005, params=self.label_embedding.parameters())
 
     def create_validation_classifier(self, linear_model=True):
         feature_dim = self.model.feature_dim
