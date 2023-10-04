@@ -589,7 +589,7 @@ class GaussianFeaturePrompt(Prompt):
         print(f"Create classifier for task id {self.model.task_id}")
         # learn prompt
         print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
-        self.learn_batch(train_loader=train_loader, train_dataset=train_dataset,
+        self._learn_batch(train_loader=train_loader, train_dataset=train_dataset,
                             model_save_dir=model_save_dir, val_loader=val_loader, normalize_target=normalize_target)
         print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
         print()
@@ -637,7 +637,7 @@ class GaussianFeaturePrompt(Prompt):
                 print(f"##### FINISH LEARNING MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
                 self.distribution[label] = dist
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
+    def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
 
         # try to load model
         need_train = True
@@ -693,7 +693,7 @@ class GaussianFeaturePrompt(Prompt):
                     accumulate_acc(output, y, task, acc, topk=(self.top_k,))
                     losses.update(loss, y.size(0))
                     batch_timer.tic()
-                    
+
                     total_gaussian_loss += gaussian_loss
                     num_training += x.shape[0]
                 # eval update
