@@ -631,10 +631,14 @@ class GaussianFeaturePrompt(Prompt):
                 print(f"##### FINISH LEARNING MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
                 self.distribution[label] = dist
 
-                feature, _ = self.model(x=X_class, get_logit=False, train=False, use_prompt=False)
-                mean_feature = torch.mean(feature, dim=0).cpu()
+                feature_wo_prompt, _ = self.model(x=X_class, get_logit=False, train=False, use_prompt=False)
+                mean_feature_wo_prompt = torch.mean(feature_wo_prompt, dim=0).cpu()
 
-                mean_diff = torch.dist(mean_feature.cpu(), dist.mean.cpu())
+                print("Mean feature without prompt")
+                print(mean_feature_wo_prompt)
+                print("Mean feature with prompt")
+                print(dist.mean.cpu())
+                mean_diff = torch.dist(mean_feature_wo_prompt, dist.mean.cpu())
                 print(f"In label {label}, difference between "
                       f"mean of learned distribution and mean of feature vector without prompt: {mean_diff}")
 
