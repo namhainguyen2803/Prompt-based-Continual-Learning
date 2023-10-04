@@ -555,6 +555,7 @@ class ProgressivePrompt(Prompt):
 class GaussianFeaturePrompt(Prompt):
     def __init__(self, learner_config):
         super(GaussianFeaturePrompt, self).__init__(learner_config)
+        self.label_embedding = None
         self.classifier_dict = dict()
         self.distribution = dict()
         self.validation_classifier = None
@@ -631,7 +632,7 @@ class GaussianFeaturePrompt(Prompt):
                 self.distribution[label] = dist
 
                 feature, _ = self.model(x=X_class, get_logit=False, train=False, use_prompt=False)
-                mean_feature = torch.mean(feature, dim=0)
+                mean_feature = torch.mean(feature, dim=0).cpu()
 
                 mean_diff = torch.dist(mean_feature, dist.mean)
                 print(f"In label {label}, difference between "
@@ -679,8 +680,13 @@ class GaussianFeaturePrompt(Prompt):
         else:
             yield x_train, y_train
 
+    def create_label_embedding(self, task):
+        task_info = self.tasks[task]
+        num_classes = len(task_info)
+        self.label_embedding = nn.Linear(num_classes, self.model.feature_dim)
+
     def create_validation_classifier(self, linear_model=True):
-        feature_dim = self.model.prompt.emb_d
+        feature_dim = self.model.feature_dim
         if linear_model:
             self.validation_classifier = nn.Linear(feature_dim, self.valid_out_dim).cuda()
         else:

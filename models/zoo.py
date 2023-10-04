@@ -516,8 +516,10 @@ class ViTZoo(nn.Module):
         self.prompt_flag = prompt_flag
         self.task_id = None
 
+        self.feature_dim = 768
+
         # get feature encoder
-        zoo_model = VisionTransformer(img_size=224, patch_size=16, embed_dim=768, depth=12,
+        zoo_model = VisionTransformer(img_size=224, patch_size=16, embed_dim=self.feature_dim, depth=12,
                                       num_heads=12, drop_path_rate=0)
 
         if pt:
@@ -527,19 +529,19 @@ class ViTZoo(nn.Module):
             zoo_model.load_state_dict(load_dict)
 
         # classifier
-        self.last = nn.Linear(768, num_classes)
+        self.last = nn.Linear(self.feature_dim, num_classes)
 
         # create prompting module
         if self.prompt_flag == 'l2p':
-            self.prompt = L2P(768, prompt_param[0], prompt_param[1])
+            self.prompt = L2P(self.feature_dim, prompt_param[0], prompt_param[1])
         elif self.prompt_flag == 'dual':
-            self.prompt = DualPrompt(768, prompt_param[0], prompt_param[1])
+            self.prompt = DualPrompt(self.feature_dim, prompt_param[0], prompt_param[1])
         elif self.prompt_flag == 'coda':
-            self.prompt = CodaPrompt(768, prompt_param[0], prompt_param[1])
+            self.prompt = CodaPrompt(self.feature_dim, prompt_param[0], prompt_param[1])
         elif self.prompt_flag == 'cpp':
-            self.prompt = SpecificPrompt(768, prompt_param[0], prompt_param[1])
+            self.prompt = SpecificPrompt(self.feature_dim, prompt_param[0], prompt_param[1])
         elif self.prompt_flag == 'concat':
-            self.prompt = ConcatenatedPrompt(768, prompt_param[0], prompt_param[1])
+            self.prompt = ConcatenatedPrompt(self.feature_dim, prompt_param[0], prompt_param[1])
         else:
             self.prompt = None
 
