@@ -620,7 +620,7 @@ class GaussianFeaturePrompt(Prompt):
                     "num_clusters": 8,
                     "covariance_type": "diag"
                 }
-                dist = get_learning_distribution_model(model_type="gmm", **learning_dist_model_params)
+                dist = get_learning_distribution_model(model_type="gaussian", **learning_dist_model_params)
                 X_class = all_x[all_y == label]
                 feature, _ = self.model(x=X_class, get_logit=False, train=False,
                                         use_prompt=True, task_id=None, prompt_type=self.prompt_type)
