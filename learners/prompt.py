@@ -589,7 +589,7 @@ class GaussianFeaturePrompt(Prompt):
         print(f"Create classifier for task id {self.model.task_id}")
         # learn prompt
         print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
-        super().learn_batch(train_loader=train_loader, train_dataset=train_dataset,
+        self.learn_batch(train_loader=train_loader, train_dataset=train_dataset,
                             model_save_dir=model_save_dir, val_loader=val_loader, normalize_target=normalize_target)
         print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
         print()
@@ -637,6 +637,90 @@ class GaussianFeaturePrompt(Prompt):
                 print(f"##### FINISH LEARNING MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
                 self.distribution[label] = dist
 
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
+
+        # try to load model
+        need_train = True
+        if not self.overwrite:
+            try:
+                self.load_model(model_save_dir)
+                need_train = False
+            except:
+                pass
+
+        # trains
+        if self.reset_optimizer:  # Reset optimizer before learning each task
+            self.log('Optimizer is reset!')
+            self.init_optimizer()
+
+        if need_train:
+            # data weighting
+            losses = AverageMeter()
+            acc = AverageMeter()
+            batch_time = AverageMeter()
+            batch_timer = Timer()
+            for epoch in range(self.config['schedule'][-1]):
+                self.epoch = epoch
+
+                if epoch > 0:
+                    self.scheduler.step()
+                for param_group in self.optimizer.param_groups:
+                    self.log('LR:', param_group['lr'])
+
+                batch_timer.tic()
+                total_gaussian_loss = 0
+                num_training = 0
+                for i, (x, y, task) in enumerate(train_loader):
+                    if normalize_target:
+                        y = y - self.last_valid_out_dim
+                    # verify in train mode
+                    self.model.train()
+
+                    # send data to gpu
+                    if self.gpu:
+                        x = x.cuda()
+                        y = y.cuda()
+
+                    # model update
+                    loss, gaussian_loss, output = self.update_model(x, y)
+
+                    # measure elapsed time
+                    batch_time.update(batch_timer.toc())
+                    batch_timer.tic()
+
+                    # measure accuracy and record loss
+                    y = y.detach()
+                    accumulate_acc(output, y, task, acc, topk=(self.top_k,))
+                    losses.update(loss, y.size(0))
+                    batch_timer.tic()
+                    
+                    total_gaussian_loss += gaussian_loss
+                    num_training += x.shape[0]
+                # eval update
+                self.log(
+                    'Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=self.epoch + 1, total=self.config['schedule'][-1]))
+                self.log(' * Loss {loss.avg:.3f} Gaussian Loss {gauss_loss: .3f} | Train Acc {acc.avg:.3f}'
+                         .format(loss=losses, gauss_loss=total_gaussian_loss / num_training, acc=acc))
+
+                # reset
+                losses = AverageMeter()
+                acc = AverageMeter()
+
+        self.model.eval()
+
+        self.last_valid_out_dim = self.valid_out_dim
+        self.first_task = False
+
+        # Extend memory
+        self.task_count += 1
+        if self.memory_size > 0:
+            train_dataset.update_coreset(self.memory_size, np.arange(self.last_valid_out_dim))
+
+        try:
+            return batch_time.avg
+        except:
+            return None
+
     def update_model(self, inputs, targets):
 
         feature, _ = self.model(x=inputs, get_logit=False, train=True,
@@ -646,11 +730,11 @@ class GaussianFeaturePrompt(Prompt):
 
         pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
 
-        gaussian_penalty = (feature - pseudo_mean)**2
+        gaussian_penalty = torch.mean((feature - pseudo_mean)**2)
 
         # ce with heuristic
         # if self.model.task_id == 0:
-        total_loss = self.criterion(logit, targets.long()) + 0.001 * torch.mean(gaussian_penalty)
+        total_loss = self.criterion(logit, targets.long()) + 0.001 * gaussian_penalty
         # else:
         #     kl_div =
 
@@ -661,7 +745,7 @@ class GaussianFeaturePrompt(Prompt):
         self.optimizer.step()
         self.label_embedding_optim.step()
 
-        return total_loss.detach(), logit
+        return total_loss.detach(), gaussian_penalty.detach(), logit
 
     def _generate_synthesis_prototype(self, num_sample=256):
         x_synthesis = list()
