@@ -634,7 +634,7 @@ class GaussianFeaturePrompt(Prompt):
                 feature, _ = self.model(x=X_class, get_logit=False, train=False, use_prompt=False)
                 mean_feature = torch.mean(feature, dim=0).cpu()
 
-                mean_diff = torch.dist(mean_feature, dist.mean)
+                mean_diff = torch.dist(mean_feature.cpu(), dist.mean.cpu())
                 print(f"In label {label}, difference between "
                       f"mean of learned distribution and mean of feature vector without prompt: {mean_diff}")
 
