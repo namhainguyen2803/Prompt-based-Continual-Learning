@@ -631,17 +631,6 @@ class GaussianFeaturePrompt(Prompt):
                 print(f"##### FINISH LEARNING MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
                 self.distribution[label] = dist
 
-                feature_wo_prompt, _ = self.model(x=X_class, get_logit=False, train=False, use_prompt=False)
-                mean_feature_wo_prompt = torch.mean(feature_wo_prompt, dim=0).cpu()
-
-                print("Mean feature without prompt")
-                print(mean_feature_wo_prompt)
-                print("Mean feature with prompt")
-                print(dist.mean.cpu())
-                mean_diff = torch.dist(mean_feature_wo_prompt, dist.mean.cpu())
-                print(f"In label {label}, difference between "
-                      f"mean of learned distribution and mean of feature vector without prompt: {mean_diff}")
-
     def update_model(self, inputs, targets):
 
         feature, _ = self.model(x=inputs, get_logit=False, train=True,
@@ -649,8 +638,15 @@ class GaussianFeaturePrompt(Prompt):
 
         logit = self.classifier_dict[self.model.task_id](feature)
 
+        pseudo_mean = self.label_embedding(targets.unsqueeze(-1))
+
+        gaussian_penalty = (feature - pseudo_mean)**2
+
         # ce with heuristic
-        total_loss = self.criterion(logit, targets.long())
+        # if self.model.task_id == 0:
+        total_loss = self.criterion(logit, targets.long()) + 0.001 * gaussian_penalty
+        # else:
+        #     kl_div = 
 
         # step
         self.optimizer.zero_grad()
