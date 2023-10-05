@@ -571,8 +571,8 @@ class GaussianFeaturePrompt(Prompt):
         self._num_anchor_key_prototype_per_class = 5
         self._create_mapping_from_class_to_task()
 
-        self.key_prototype = None
-        self.mapping_class_to_task = None
+        self.key_prototype = dict()
+        self.mapping_class_to_task = dict()
 
     def create_model(self):
         cfg = self.config
