@@ -825,41 +825,52 @@ class GaussianFeaturePrompt(Prompt):
 
         if top_k == 1:
             return ranking.squeeze(-1)
-        # else:
-        #
-        #     possible_task_id = torch.zeros_like(ranking).cuda()
-        #
-        #     for class_id in range(self.valid_out_dim):
-        #         # [0, 5]
-        #         class_range = (class_id * self._num_anchor_key_prototype_per_class,
-        #                        (class_id + 1) * self._num_anchor_key_prototype_per_class)
-        #         for c in range(class_range[0], class_range[1]):
-        #             possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
-        #
-        #     flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
-        #     flatten_possible_task_id = flatten_possible_task_id.squeeze(-1)
-        #
-        #     inp = input.unsqueeze(0)
-        #     input_repeat = inp.repeat(top_k, 1, 1, 1, 1)
-        #     input_repeat = input_repeat.permute(1, 0, 2, 3, 4)
-        #     input_repeat = input_repeat.reshape(-1, input_repeat.shape[2], input_repeat.shape[3], input_repeat.shape[4])
-        #
-        #     last_feature, _ = self.model(input_repeat, get_logit=False, train=False,
-        #                                  use_prompt=True, task_id=flatten_possible_task_id,
-        #                                  prompt_type=self.prompt_type)  # (top_k * B, emb_d)
-        #
-        #     fine_grained_query = last_feature.reshape(B, top_k, self.model.prompt.emb_d)
-        #
-        #     score_likelihood = torch.zeros(B, self.valid_out_dim)
-        #
-        #     for class_id, distribution in self.distribution.items():
-        #         score = distribution.log_likelihood(last_feature)
 
+        else:
+            possible_task_id = torch.zeros_like(ranking).cuda()
+            possible_class_id = torch.zeros_like(ranking).cuda()
+            for class_id in range(self.valid_out_dim):
+                # [0, 5]
+                class_range = (class_id * self._num_anchor_key_prototype_per_class,
+                               (class_id + 1) * self._num_anchor_key_prototype_per_class)
+                for c in range(class_range[0], class_range[1]):
+                    possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
+                    possible_class_id[ranking == c] = class_id
+
+            flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
+            flatten_possible_task_id = flatten_possible_task_id.squeeze(-1)
+
+            inp = input.unsqueeze(0)
+            input_repeat = inp.repeat(top_k, 1, 1, 1, 1)
+            input_repeat = input_repeat.permute(1, 0, 2, 3, 4)
+            input_repeat = input_repeat.reshape(-1, input_repeat.shape[2], input_repeat.shape[3], input_repeat.shape[4])
+
+            last_feature, _ = self.model(input_repeat, get_logit=False, train=False,
+                                         use_prompt=True, task_id=flatten_possible_task_id,
+                                         prompt_type=self.prompt_type)  # (top_k * B, emb_d)
+
+            # fine_grained_query = last_feature.reshape(B, top_k, self.model.prompt.emb_d)
+
+            score_likelihood = torch.zeros(B, self.valid_out_dim)
+
+            for class_id, distribution in self.distribution.items():
+                score_likelihood[:, class_id] = distribution.log_likelihood(last_feature)
+
+            flatten_possible_class_id = possible_class_id.reshape(-1, 1).squeeze(-1)
+            selected_score = score_likelihood[
+                torch.arange(start=0, end=B).reshape(-1, 1).repeat(1, 2).reshape(-1, 1).squeeze(-1).to(torch.int32),
+                flatten_possible_class_id.to(torch.int32)].reshape(B, -1)
+
+            assert selected_score.shape == (B, top_k)
+
+            decision = torch.max(selected_score, dim=1).indices
+
+            return possible_task_id[range(B), decision]
 
     def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
         with torch.no_grad():
             predicted_task = self.task_id_prediction(model, input, kwargs["U"])
-            task = torch.unique(task)[0].item()
+            # task = torch.unique(task)[0].item()
             print(f"Percentage of correct task: {torch.sum(predicted_task - task) / task.numel()}")
             if task_in is None:
                 feature, _ = model(input, get_logit=False, train=False, use_prompt=True,
