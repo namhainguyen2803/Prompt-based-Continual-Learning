@@ -9,7 +9,7 @@ from models.LearnDistribution import get_learning_distribution_model
 from utils.metric import AverageMeter, Timer
 from utils.schedulers import CosineSchedule
 from .default import NormalNN, accumulate_acc
-from models.ClusterAlgorithm import KMeans
+from models.ClusterAlgorithm import KMeans, fit_kmeans_many_times
 from models.EmbeddingProjection import EmbeddingMLP, MLP
 
 
@@ -567,6 +567,13 @@ class GaussianFeaturePrompt(Prompt):
         self.logit_normalize = True
         self.logit_norm = 0.1
 
+        self._num_anchor_value_prototype_per_class = 5
+        self._num_anchor_key_prototype_per_class = 5
+        self._create_mapping_from_class_to_task()
+
+        self.key_prototype = None
+        self.mapping_class_to_task = None
+
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag='cpp',
@@ -583,14 +590,21 @@ class GaussianFeaturePrompt(Prompt):
                             list(self.classifier_dict[self.model.task_id].parameters())
         return params_to_opt
 
+    def _create_mapping_from_class_to_task(self):
+        self.mapping_class_to_task = dict()
+        for task_id, class_range in enumerate(self.tasks):
+            for class_id in class_range:
+                self.mapping_class_to_task[class_id] = task_id
+
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True):
         self.create_classifier(self.model.task_id)  # create classifier for each task
         self.create_label_embedding(self.model.task_id)
         print(f"Create classifier for task id {self.model.task_id}")
+        self._update_key_prototype(train_loader)
         # learn prompt
         print(f"##### Attempt to learn batch in task id: {self.model.task_id}. #####")
         self._learn_batch(train_loader=train_loader, train_dataset=train_dataset,
-                            model_save_dir=model_save_dir, val_loader=val_loader, normalize_target=normalize_target)
+                          model_save_dir=model_save_dir, val_loader=val_loader, normalize_target=normalize_target)
         print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
         print()
         print(f"Start learning Gaussian distribution for each class of task id: {self.model.task_id}")
@@ -730,7 +744,7 @@ class GaussianFeaturePrompt(Prompt):
 
         pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
 
-        gaussian_penalty = torch.mean((feature - pseudo_mean)**2)
+        gaussian_penalty = torch.mean((feature - pseudo_mean) ** 2)
 
         # ce with heuristic
         # if self.model.task_id == 0:
@@ -783,22 +797,74 @@ class GaussianFeaturePrompt(Prompt):
         if linear_model:
             self.validation_classifier = nn.Linear(feature_dim, self.valid_out_dim).cuda()
         else:
-            self.validation_classifier = MLP(in_feature= feature_dim, hidden_features=[1024], out_feature=self.valid_out_dim).cuda()
+            self.validation_classifier = MLP(in_feature=feature_dim, hidden_features=[1024],
+                                             out_feature=self.valid_out_dim).cuda()
 
-    def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True):
-        return super().validation(dataloader, model, task_in, task_metric, verbal)
+    def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True, **kwargs):
+        U = list()
+        for class_id in range(self.valid_out_dim):
+            key = self.key_prototype[class_id].unsqueeze(0)
+            U.append(key)
+        U = torch.cat(U, dim=0)  # (num_classes, num_anchors, emb_d)
+        kwargs["U"] = U
+        return super().validation(dataloader, model, task_in, task_metric, verbal, **kwargs)
 
-    def _evaluate(self, model, input, target, task, acc, task_in=None):
+    def task_id_prediction(self, model, input, U, top_k=1):
+        if model is None:
+            model = self.model
+
+        x_query = model.retrieve_query_vector(input)
+        B, C = x_query.shape
+        # cosine similarity to match keys/queries
+        n_U = nn.functional.normalize(U, dim=2)  # (num_classes, num_anchors, emb_d)
+        q = nn.functional.normalize(x_query, dim=1).detach()  # (B, emb_d)
+        cos_sim = torch.einsum('kj,bij->kbi', q, n_U)  # (B, num_classes, num_anchors)
+        flatten_cos_sim = cos_sim.reshape(B, -1)  # (B, num_classes * num_anchors)
+        prototype_id_ranking = torch.topk(flatten_cos_sim, top_k, dim=1)
+        ranking = prototype_id_ranking.indices  # shape == (B, self.top_k)
+        # possible_task_id = torch.zeros_like(ranking).cuda()
+        #
+        # for class_id in range(self.valid_out_dim):
+        #     # [0, 5]
+        #     class_range = (class_id * self._num_anchor_key_prototype_per_class,
+        #                    (class_id + 1) * self._num_anchor_key_prototype_per_class)
+        #     for c in range(class_range[0], class_range[1]):
+        #         possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
+        #
+        # flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
+        # flatten_possible_task_id = flatten_possible_task_id.squeeze(-1)
+        #
+        # inp = input.unsqueeze(0)
+        # input_repeat = inp.repeat(top_k, 1, 1, 1, 1)
+        # input_repeat = input_repeat.permute(1, 0, 2, 3, 4)
+        # input_repeat = input_repeat.reshape(-1, input_repeat.shape[2], input_repeat.shape[3], input_repeat.shape[4])
+        #
+        # last_feature, _ = self.model(input_repeat, get_logit=False, train=False,
+        #                              use_prompt=True, task_id=flatten_possible_task_id,
+        #                              prompt_type=self.prompt_type)  # (top_k * B, emb_d)
+        #
+        # fine_grained_query = last_feature.reshape(B, top_k, self.model.prompt.emb_d)
+        #
+        # score_likelihood = torch.zeros(B, self.valid_out_dim)
+        #
+        # for class_id, distribution in self.distribution.items():
+        #     score = distribution.log_likelihood(last_feature)
+        return ranking.squeeze(-1)
+
+
+    def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
         with torch.no_grad():
+            predicted_task = self.task_id_prediction(model, input, kwargs["U"])
             task = torch.unique(task)[0].item()
+            print(f"Percentage of correct task: {torch.sum(predicted_task - task) / task.numel()}")
             if task_in is None:
                 feature, _ = model(input, get_logit=False, train=False, use_prompt=True,
-                                   task_id=task, prompt_type=self.prompt_type)
+                                   task_id=predicted_task, prompt_type=self.prompt_type)
                 output = self.validation_classifier(feature)
                 acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
             else:
                 feature, _ = model(input, get_logit=True, train=False, use_prompt=True,
-                                   task_id=task, prompt_type=self.prompt_type)
+                                   task_id=predicted_task, prompt_type=self.prompt_type)
                 output = self.validation_classifier(feature)
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
@@ -868,14 +934,18 @@ class GaussianFeaturePrompt(Prompt):
             outputs = torch.cat(list_output, dim=0)
             uni_output = sorted(torch.unique(outputs).tolist())
             for class_id in uni_output:
-                cluster_algorithm = KMeans(num_classes=self._num_anchor_key_prototype_per_class)
                 feature_set_for_class_id = last_features[outputs == class_id]
                 assert feature_set_for_class_id.ndim == 2, "feature_set_for_class_id.ndim != 2."
-                cluster_algorithm.fit(feature_set_for_class_id)
-                prototype = cluster_algorithm.get_centroids()
+                check_tensor_nan(feature_set_for_class_id, "feature_set_for_class_id")
+
+                clustering_params = {
+                    "num_classes": self._num_anchor_key_prototype_per_class,
+                    "max_iter": 1000,
+                    "init_times": 1
+                }
+                prototype = fit_kmeans_many_times(feature_set_for_class_id, **clustering_params)
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
                 check_tensor_nan(prototype, "prototype")
-                check_tensor_nan(feature_set_for_class_id, "feature_set_for_class_id")
             return prototype_set
 
     def _update_key_prototype(self, train_loader):

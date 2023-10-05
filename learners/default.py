@@ -157,7 +157,7 @@ class NormalNN(nn.Module):
         self.optimizer.step()
         return total_loss.detach(), logits
 
-    def _evaluate(self, model, input, target, task, acc, task_in=None):
+    def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
         with torch.no_grad():
             if task_in is None:
                 logit, _, _ = model(input)
@@ -170,7 +170,7 @@ class NormalNN(nn.Module):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
 
-    def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True):
+    def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True, **kwargs):
         with torch.no_grad():
             if model is None:
                 model = self.model
@@ -187,7 +187,7 @@ class NormalNN(nn.Module):
                         input = input.cuda()
                         target = target.cuda()
                 if task_in is None:
-                    acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None)
+                    acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None, **kwargs)
 
                 else:
                     mask = target >= task_in[0]
@@ -196,7 +196,7 @@ class NormalNN(nn.Module):
                     mask = target < task_in[-1]
                     mask_ind = mask.nonzero().view(-1)
                     input, target = input[mask_ind], target[mask_ind]
-                    acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in)
+                    acc = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in, **kwargs)
 
         model.train(orig_mode)
         if verbal:
