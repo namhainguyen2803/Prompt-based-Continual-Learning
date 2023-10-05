@@ -870,7 +870,7 @@ class GaussianFeaturePrompt(Prompt):
 
     def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
         with torch.no_grad():
-            predicted_task = self.task_id_prediction(model, input, kwargs["U"], top_k=3)
+            predicted_task = self.task_id_prediction(model, input, kwargs["U"], top_k=1)
             # task = torch.unique(task)[0].item()
             print(f"Percentage of correct task: {torch.sum(predicted_task.cpu() == task.cpu()) / task.cpu().numel()}")
             if task_in is None:
