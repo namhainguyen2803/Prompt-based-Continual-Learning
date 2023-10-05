@@ -822,20 +822,21 @@ class GaussianFeaturePrompt(Prompt):
         flatten_cos_sim = cos_sim.reshape(B, -1)  # (B, num_classes * num_anchors)
         prototype_id_ranking = torch.topk(flatten_cos_sim, top_k, dim=1)
         ranking = prototype_id_ranking.indices  # shape == (B, self.top_k)
+        
+        possible_task_id = torch.zeros_like(ranking)
+        possible_class_id = torch.zeros_like(ranking)
+        for class_id in range(self.valid_out_dim):
+            # [0, 5]
+            class_range = (class_id * self._num_anchor_key_prototype_per_class,
+                           (class_id + 1) * self._num_anchor_key_prototype_per_class)
+            for c in range(class_range[0], class_range[1]):
+                possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
+                possible_class_id[ranking == c] = class_id
 
         if top_k == 1:
-            return ranking.squeeze(-1)
+            return possible_class_id.squeeze(-1)
 
         else:
-            possible_task_id = torch.zeros_like(ranking).cuda()
-            possible_class_id = torch.zeros_like(ranking).cuda()
-            for class_id in range(self.valid_out_dim):
-                # [0, 5]
-                class_range = (class_id * self._num_anchor_key_prototype_per_class,
-                               (class_id + 1) * self._num_anchor_key_prototype_per_class)
-                for c in range(class_range[0], class_range[1]):
-                    possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
-                    possible_class_id[ranking == c] = class_id
 
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
             flatten_possible_task_id = flatten_possible_task_id.squeeze(-1)
