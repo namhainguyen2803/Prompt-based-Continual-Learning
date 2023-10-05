@@ -569,10 +569,11 @@ class GaussianFeaturePrompt(Prompt):
 
         self._num_anchor_value_prototype_per_class = 5
         self._num_anchor_key_prototype_per_class = 5
-        self._create_mapping_from_class_to_task()
 
         self.key_prototype = dict()
         self.mapping_class_to_task = dict()
+        
+        self._create_mapping_from_class_to_task()
 
     def create_model(self):
         cfg = self.config
@@ -591,7 +592,6 @@ class GaussianFeaturePrompt(Prompt):
         return params_to_opt
 
     def _create_mapping_from_class_to_task(self):
-        self.mapping_class_to_task = dict()
         for task_id, class_range in enumerate(self.tasks):
             for class_id in class_range:
                 self.mapping_class_to_task[class_id] = task_id
@@ -822,7 +822,7 @@ class GaussianFeaturePrompt(Prompt):
         flatten_cos_sim = cos_sim.reshape(B, -1)  # (B, num_classes * num_anchors)
         prototype_id_ranking = torch.topk(flatten_cos_sim, top_k, dim=1)
         ranking = prototype_id_ranking.indices  # shape == (B, self.top_k)
-        
+
         possible_task_id = torch.zeros_like(ranking)
         possible_class_id = torch.zeros_like(ranking)
         for class_id in range(self.valid_out_dim):
