@@ -572,7 +572,7 @@ class GaussianFeaturePrompt(Prompt):
 
         self.key_prototype = dict()
         self.mapping_class_to_task = dict()
-        
+
         self._create_mapping_from_class_to_task()
 
     def create_model(self):
@@ -834,7 +834,7 @@ class GaussianFeaturePrompt(Prompt):
                 possible_class_id[ranking == c] = class_id
 
         if top_k == 1:
-            return possible_class_id.squeeze(-1)
+            return possible_task_id.squeeze(-1)
 
         else:
 
@@ -885,7 +885,7 @@ class GaussianFeaturePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc
 
-    def learn_validation_classifier(self, max_iter=25, lr=0.001):
+    def learn_validation_classifier(self, max_iter=50, lr=0.001):
         self.create_validation_classifier(linear_model=True)
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
@@ -927,7 +927,7 @@ class GaussianFeaturePrompt(Prompt):
                 total_loss.backward()
                 classifier_optimizer.step()
                 loss += total_loss.detach()
-            if iter % 1 == 0:
+            if iter % 10 == 0:
                 print(f"Learning validation classifier... iteration {iter}, loss function: {loss}")
             if loss - old_loss > UPPER_THRESHOLD:
                 break
