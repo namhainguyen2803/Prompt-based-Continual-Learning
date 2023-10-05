@@ -855,7 +855,7 @@ class GaussianFeaturePrompt(Prompt):
             score_likelihood = torch.zeros(B, self.valid_out_dim)
 
             for class_id, distribution in self.distribution.items():
-                score_likelihood[:, class_id] = distribution.log_likelihood(last_feature)
+                score_likelihood[:, class_id] = distribution.log_likelihood(last_feature.cpu())
 
             flatten_possible_class_id = possible_class_id.reshape(-1, 1).squeeze(-1)
             selected_score = score_likelihood[
@@ -870,9 +870,9 @@ class GaussianFeaturePrompt(Prompt):
 
     def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
         with torch.no_grad():
-            predicted_task = self.task_id_prediction(model, input, kwargs["U"], top_k=1)
+            predicted_task = self.task_id_prediction(model, input, kwargs["U"], top_k=3)
             # task = torch.unique(task)[0].item()
-            print(f"Percentage of correct task: {torch.sum(predicted_task.cpu() == task.cpu()) / task.cpu().numel()}")
+            print(f"Percentage of correct task: {torch.mean(predicted_task.cpu() == task.cpu())}")
             if task_in is None:
                 feature, _ = model(input, get_logit=False, train=False, use_prompt=True,
                                    task_id=predicted_task, prompt_type=self.prompt_type)
