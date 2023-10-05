@@ -822,34 +822,38 @@ class GaussianFeaturePrompt(Prompt):
         flatten_cos_sim = cos_sim.reshape(B, -1)  # (B, num_classes * num_anchors)
         prototype_id_ranking = torch.topk(flatten_cos_sim, top_k, dim=1)
         ranking = prototype_id_ranking.indices  # shape == (B, self.top_k)
-        # possible_task_id = torch.zeros_like(ranking).cuda()
+
+        if top_k == 1:
+            return ranking.squeeze(-1)
+        # else:
         #
-        # for class_id in range(self.valid_out_dim):
-        #     # [0, 5]
-        #     class_range = (class_id * self._num_anchor_key_prototype_per_class,
-        #                    (class_id + 1) * self._num_anchor_key_prototype_per_class)
-        #     for c in range(class_range[0], class_range[1]):
-        #         possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
+        #     possible_task_id = torch.zeros_like(ranking).cuda()
         #
-        # flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
-        # flatten_possible_task_id = flatten_possible_task_id.squeeze(-1)
+        #     for class_id in range(self.valid_out_dim):
+        #         # [0, 5]
+        #         class_range = (class_id * self._num_anchor_key_prototype_per_class,
+        #                        (class_id + 1) * self._num_anchor_key_prototype_per_class)
+        #         for c in range(class_range[0], class_range[1]):
+        #             possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
         #
-        # inp = input.unsqueeze(0)
-        # input_repeat = inp.repeat(top_k, 1, 1, 1, 1)
-        # input_repeat = input_repeat.permute(1, 0, 2, 3, 4)
-        # input_repeat = input_repeat.reshape(-1, input_repeat.shape[2], input_repeat.shape[3], input_repeat.shape[4])
+        #     flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
+        #     flatten_possible_task_id = flatten_possible_task_id.squeeze(-1)
         #
-        # last_feature, _ = self.model(input_repeat, get_logit=False, train=False,
-        #                              use_prompt=True, task_id=flatten_possible_task_id,
-        #                              prompt_type=self.prompt_type)  # (top_k * B, emb_d)
+        #     inp = input.unsqueeze(0)
+        #     input_repeat = inp.repeat(top_k, 1, 1, 1, 1)
+        #     input_repeat = input_repeat.permute(1, 0, 2, 3, 4)
+        #     input_repeat = input_repeat.reshape(-1, input_repeat.shape[2], input_repeat.shape[3], input_repeat.shape[4])
         #
-        # fine_grained_query = last_feature.reshape(B, top_k, self.model.prompt.emb_d)
+        #     last_feature, _ = self.model(input_repeat, get_logit=False, train=False,
+        #                                  use_prompt=True, task_id=flatten_possible_task_id,
+        #                                  prompt_type=self.prompt_type)  # (top_k * B, emb_d)
         #
-        # score_likelihood = torch.zeros(B, self.valid_out_dim)
+        #     fine_grained_query = last_feature.reshape(B, top_k, self.model.prompt.emb_d)
         #
-        # for class_id, distribution in self.distribution.items():
-        #     score = distribution.log_likelihood(last_feature)
-        return ranking.squeeze(-1)
+        #     score_likelihood = torch.zeros(B, self.valid_out_dim)
+        #
+        #     for class_id, distribution in self.distribution.items():
+        #         score = distribution.log_likelihood(last_feature)
 
 
     def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
@@ -943,7 +947,8 @@ class GaussianFeaturePrompt(Prompt):
                     "max_iter": 1000,
                     "init_times": 1
                 }
-                prototype, _ = fit_kmeans_many_times(feature_set_for_class_id, **clustering_params)
+                cluster_model, _ = fit_kmeans_many_times(feature_set_for_class_id, **clustering_params)
+                prototype = cluster_model.get_centroids()
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
                 check_tensor_nan(prototype, "prototype")
             return prototype_set
