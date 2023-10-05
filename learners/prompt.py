@@ -943,7 +943,7 @@ class GaussianFeaturePrompt(Prompt):
                     "max_iter": 1000,
                     "init_times": 1
                 }
-                prototype = fit_kmeans_many_times(feature_set_for_class_id, **clustering_params)
+                prototype, _ = fit_kmeans_many_times(feature_set_for_class_id, **clustering_params)
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
                 check_tensor_nan(prototype, "prototype")
             return prototype_set
