@@ -870,13 +870,6 @@ class GaussianFeaturePrompt(Prompt):
 
             res = possible_task_id[range(B), decision]
 
-            rn = random.randint(0, 3)
-            if rn == 0:
-                print(f"Score likelihood: {score_likelihood.reshape(B, top_k, self.valid_out_dim)}")
-                print(f"Selected score: {selected_score}")
-                print(f"Possible task id: {possible_task_id}")
-                print(f"Prediction: {res}")
-            
             return res
 
     def _validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True, **kwargs):
