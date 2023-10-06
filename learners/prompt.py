@@ -597,7 +597,7 @@ class GaussianFeaturePrompt(Prompt):
             for class_id in class_range:
                 self.mapping_class_to_task[class_id] = task_id
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
         self.create_classifier(self.model.task_id)  # create classifier for each task
         self.create_label_embedding(self.model.task_id)
         print(f"Create classifier for task id {self.model.task_id}")
@@ -744,7 +744,7 @@ class GaussianFeaturePrompt(Prompt):
         logit = self.classifier_dict[self.model.task_id](feature)
 
         # pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
-        pseudo_mean = self.label_embedding[(targets.unsqueeze(-1) - self.last_valid_out_dim).to(torch.int32),:]
+        pseudo_mean = self.label_embedding[(targets - self.last_valid_out_dim).to(torch.int32),:]
 
         gaussian_penalty = torch.mean((feature - pseudo_mean) ** 2)
 
