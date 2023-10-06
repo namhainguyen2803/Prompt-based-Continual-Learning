@@ -625,9 +625,6 @@ class GaussianFeaturePrompt(Prompt):
             for i, (x, y, task) in enumerate(train_loader):
                 # verify in train mode
                 self.model.train()
-                if self.gpu:
-                    x = x.cuda()
-                    y = y.cuda()
                 # model update
                 all_x.append(x)
                 all_y.append(y)
@@ -746,11 +743,12 @@ class GaussianFeaturePrompt(Prompt):
         # pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
         pseudo_mean = self.label_embedding[targets.to(torch.int32), :]
 
-        gaussian_penalty = 0.001 * torch.mean(torch.sum((feature - pseudo_mean) ** 2, dim=1))
+        gaussian_penalty = torch.mean(torch.sum((feature - pseudo_mean) ** 2, dim=1))
 
         # ce with heuristic
         # if self.model.task_id == 0:
-        total_loss = self.criterion(logit, targets.long()) + gaussian_penalty
+        # total_loss = self.criterion(logit, targets.long()) + 0.001 * gaussian_penalty
+        total_loss = gaussian_penalty
         # else:
         #     kl_div =
 
@@ -845,9 +843,9 @@ class GaussianFeaturePrompt(Prompt):
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
             flatten_possible_task_id = flatten_possible_task_id.squeeze(-1)
 
-            inp = input.unsqueeze(0)
-            input_repeat = inp.repeat(top_k, 1, 1, 1, 1)
-            input_repeat = input_repeat.permute(1, 0, 2, 3, 4)
+            inp = input.unsqueeze(0) # (1, B, C, H, W)
+            input_repeat = inp.repeat(top_k, 1, 1, 1, 1) # (top_k, B, C, H, W)
+            input_repeat = input_repeat.permute(1, 0, 2, 3, 4) # (B, top_k, C, H, W)
             input_repeat = input_repeat.reshape(-1, input_repeat.shape[2], input_repeat.shape[3], input_repeat.shape[4])
 
             last_feature, _ = self.model(input_repeat, get_logit=False, train=False,
