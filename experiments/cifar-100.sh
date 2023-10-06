@@ -26,7 +26,7 @@ mkdir -p $OUTDIR
 #    arg 3 = if > 0 then deep prompt else narrow prompt
 python3 -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
     --learner_type prompt --learner_name GaussianFeaturePrompt \
-    --prompt_param 10 1 1 \
+    --prompt_param 10 2 1 \
     --log_dir ${OUTDIR}/prog \
     --prompt_type $PROMPT_TYPE
 
