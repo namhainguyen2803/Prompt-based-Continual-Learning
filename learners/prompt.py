@@ -625,6 +625,10 @@ class GaussianFeaturePrompt(Prompt):
             for i, (x, y, task) in enumerate(train_loader):
                 # verify in train mode
                 self.model.train()
+
+                if self.gpu:
+                    x = x.cuda()
+                    y = y.cuda()
                 # model update
                 all_x.append(x)
                 all_y.append(y)
