@@ -745,7 +745,7 @@ class GaussianFeaturePrompt(Prompt):
         logit = self.classifier_dict[self.model.task_id](feature)
 
         # pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
-        pseudo_mean = self.label_embedding[(targets.unsqueeze(-1) - self.last_valid_out_dim).to(torch.float32),:]
+        pseudo_mean = self.label_embedding[(targets.unsqueeze(-1) - self.last_valid_out_dim).to(torch.int32),:]
 
         gaussian_penalty = torch.mean((feature - pseudo_mean) ** 2)
 
