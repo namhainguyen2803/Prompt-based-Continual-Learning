@@ -1,5 +1,7 @@
 from __future__ import print_function
 
+import random
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -807,7 +809,7 @@ class GaussianFeaturePrompt(Prompt):
             U.append(key)
         U = torch.cat(U, dim=0)  # (num_classes, num_anchors, emb_d)
         kwargs["U"] = U
-        return super().validation(dataloader, model, task_in, task_metric, verbal, **kwargs)
+        return self._validation(dataloader, model, task_in, task_metric, verbal, **kwargs)
 
     def task_id_prediction(self, model, input, U, top_k=1):
         if model is None:
@@ -866,13 +868,67 @@ class GaussianFeaturePrompt(Prompt):
 
             decision = torch.max(selected_score, dim=1).indices
 
-            return possible_task_id[range(B), decision]
+            res = possible_task_id[range(B), decision]
+
+            rn = random.randint(0, 3)
+            if rn == 0:
+                print(f"Score likelihood: {score_likelihood.reshape(B, top_k, self.valid_out_dim)}")
+                print(f"Selected score: {selected_score}")
+                print(f"Possible task id: {possible_task_id}")
+                print(f"Prediction: {res}")
+            
+            return res
+
+    def _validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True, **kwargs):
+        with torch.no_grad():
+            if model is None:
+                model = self.model
+            # This function doesn't distinguish tasks.
+            batch_timer = Timer()
+            acc = AverageMeter()
+            batch_timer.tic()
+            orig_mode = model.training
+            model.eval()
+
+            correct_task = 0
+            total_instance = 0
+            for i, (input, target, task) in enumerate(dataloader):
+
+                if self.gpu:
+                    with torch.no_grad():
+                        input = input.cuda()
+                        target = target.cuda()
+                if task_in is None:
+                    acc, num_correct_task, unique_task\
+                        = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None, **kwargs)
+
+                else:
+                    mask = target >= task_in[0]
+                    mask_ind = mask.nonzero().view(-1)
+                    input, target = input[mask_ind], target[mask_ind]
+                    mask = target < task_in[-1]
+                    mask_ind = mask.nonzero().view(-1)
+                    input, target = input[mask_ind], target[mask_ind]
+                    acc, num_correct_task, unique_task\
+                        = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in, **kwargs)
+
+                correct_task += num_correct_task
+                total_instance += task.cpu().numel()
+
+        model.train(orig_mode)
+        if verbal:
+            self.log(f'In task {unique_task}:')
+            self.log('  * Val Acc {acc.avg:.3f}, Total time {time:.2f}'
+                     .format(acc=acc, time=batch_timer.toc()))
+            self.log(f' * Percentage of correct task: {correct_task / total_instance}')
+        return acc.avg
 
     def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
         with torch.no_grad():
             predicted_task = self.task_id_prediction(model, input, kwargs["U"], top_k=3)
             unique_task = torch.unique(task)[0].item()
-            print(f"In task: {unique_task}, Percentage of correct task: {torch.mean(predicted_task.cpu() == task.cpu())}")
+            num_correct_task = torch.sum(predicted_task.cpu() == task.cpu())
+            # print(f"In task: {unique_task}, percentage of correct task: {torch.sum(predicted_task.cpu() == task.cpu()) / task.cpu().numel()}")
             if task_in is None:
                 feature, _ = model(input, get_logit=False, train=False, use_prompt=True,
                                    task_id=predicted_task, prompt_type=self.prompt_type)
@@ -883,7 +939,7 @@ class GaussianFeaturePrompt(Prompt):
                                    task_id=predicted_task, prompt_type=self.prompt_type)
                 output = self.validation_classifier(feature)
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
-            return acc
+            return acc, num_correct_task, unique_task
 
     def learn_validation_classifier(self, max_iter=50, lr=0.001):
         self.create_validation_classifier(linear_model=True)
