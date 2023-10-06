@@ -744,7 +744,7 @@ class GaussianFeaturePrompt(Prompt):
         logit = self.classifier_dict[self.model.task_id](feature)
 
         # pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
-        pseudo_mean = self.label_embedding[targets.to(torch.int32),:]
+        pseudo_mean = self.label_embedding[targets.to(torch.int32), :]
 
         gaussian_penalty = 0.1 * torch.mean(torch.sum((feature - pseudo_mean) ** 2, dim=1))
 
@@ -791,7 +791,8 @@ class GaussianFeaturePrompt(Prompt):
     def create_label_embedding(self, task):
         task_info = self.tasks[task]
         num_classes = len(task_info)
-        self.label_embedding = nn.Parameter(data=torch.randn(num_classes, self.model.feature_dim, device='cuda'), requires_grad=True)
+        self.label_embedding = nn.Parameter(data=torch.randn(num_classes, self.model.feature_dim, device='cuda'),
+                                            requires_grad=True)
         # self.label_embedding = nn.Linear(1, self.model.feature_dim).cuda()
         self.label_embedding_optim = torch.optim.Adam(lr=0.0005, params=[self.label_embedding])
 
@@ -893,8 +894,9 @@ class GaussianFeaturePrompt(Prompt):
                         input = input.cuda()
                         target = target.cuda()
                 if task_in is None:
-                    acc, num_correct_task, unique_task\
-                        = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None, **kwargs)
+                    acc, num_correct_task, unique_task \
+                        = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None,
+                                         **kwargs)
 
                 else:
                     mask = target >= task_in[0]
@@ -903,8 +905,9 @@ class GaussianFeaturePrompt(Prompt):
                     mask = target < task_in[-1]
                     mask_ind = mask.nonzero().view(-1)
                     input, target = input[mask_ind], target[mask_ind]
-                    acc, num_correct_task, unique_task\
-                        = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in, **kwargs)
+                    acc, num_correct_task, unique_task \
+                        = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in,
+                                         **kwargs)
 
                 correct_task += num_correct_task
                 total_instance += task.cpu().numel()
@@ -986,18 +989,27 @@ class GaussianFeaturePrompt(Prompt):
     def _update_prototype_set(self, prototype_set, train_loader):
         with torch.no_grad():
             list_last_feature = list()
+            list_last_feature_with_prompt = list()
             list_output = list()
             for i, (x, y, task) in enumerate(train_loader):
                 self.model.eval()
                 if self.gpu:
                     x = x.cuda()
                     y = y.cuda()
-                last_feature, _ = self.model(x, get_logit=False, train=False, use_prompt=False,
-                                             task_id=task, prompt_type=self.prompt_type)
+
+                last_feature, _ = self.model(x, get_logit=False, train=False, use_prompt=False)
+
+                last_feature_with_prompt, _ = self.model(x, get_logit=False, train=False, use_prompt=True,
+                                                         task_id=task, prompt_type=self.prompt_type)
+
+                list_last_feature_with_prompt.append(last_feature_with_prompt)
                 list_last_feature.append(last_feature)
                 list_output.append(y)
+
             last_features = torch.cat(list_last_feature, dim=0)
+            last_feature_with_prompt = torch.cat(list_last_feature_with_prompt, dim=0)
             outputs = torch.cat(list_output, dim=0)
+
             uni_output = sorted(torch.unique(outputs).tolist())
             for class_id in uni_output:
                 feature_set_for_class_id = last_features[outputs == class_id]
@@ -1013,8 +1025,12 @@ class GaussianFeaturePrompt(Prompt):
                 prototype = cluster_model.get_centroids()
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
                 check_tensor_nan(prototype, "prototype")
+
                 # initialize label_embedding data
-                self.label_embedding.data[class_id - self.last_valid_out_dim,:] = torch.mean(prototype, dim=0)
+                feature_with_prompt_for_class = last_feature_with_prompt[outputs == class_id]
+                self.label_embedding.data[class_id - self.last_valid_out_dim, :] = \
+                    torch.mean(feature_with_prompt_for_class, dim=0)
+                
             return prototype_set
 
     def _update_key_prototype(self, train_loader):
