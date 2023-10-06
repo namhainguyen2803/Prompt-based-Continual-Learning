@@ -1014,7 +1014,7 @@ class GaussianFeaturePrompt(Prompt):
                 prototype = cluster_model.get_centroids()
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
                 check_tensor_nan(prototype, "prototype")
-                self.label_embedding.data[:,class_id - self.last_valid_out_dim] = torch.mean(prototype, dim=1)
+                self.label_embedding.data[class_id - self.last_valid_out_dim,:] = torch.mean(prototype, dim=1)
             return prototype_set
 
     def _update_key_prototype(self, train_loader):
