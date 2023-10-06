@@ -569,7 +569,6 @@ class GaussianFeaturePrompt(Prompt):
         self.logit_normalize = True
         self.logit_norm = 0.1
 
-        self._num_anchor_value_prototype_per_class = 5
         self._num_anchor_key_prototype_per_class = 5
 
         self.key_prototype = dict()
@@ -936,7 +935,7 @@ class GaussianFeaturePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc, num_correct_task, unique_task
 
-    def learn_validation_classifier(self, max_iter=50, lr=0.001):
+    def learn_validation_classifier(self, max_iter=50, lr=0.01):
         self.create_validation_classifier(linear_model=True)
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
@@ -1014,6 +1013,7 @@ class GaussianFeaturePrompt(Prompt):
                 prototype = cluster_model.get_centroids()
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
                 check_tensor_nan(prototype, "prototype")
+                # initialize label_embedding data
                 self.label_embedding.data[class_id - self.last_valid_out_dim,:] = torch.mean(prototype, dim=0)
             return prototype_set
 
