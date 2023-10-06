@@ -744,7 +744,8 @@ class GaussianFeaturePrompt(Prompt):
 
         logit = self.classifier_dict[self.model.task_id](feature)
 
-        pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
+        # pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
+        pseudo_mean = self.label_embedding[targets.unsqueeze(-1).to(torch.float32) - self.last_valid_out_dim,:]
 
         gaussian_penalty = torch.mean((feature - pseudo_mean) ** 2)
 
@@ -791,7 +792,8 @@ class GaussianFeaturePrompt(Prompt):
     def create_label_embedding(self, task):
         task_info = self.tasks[task]
         num_classes = len(task_info)
-        self.label_embedding = nn.Linear(1, self.model.feature_dim).cuda()
+        self.label_embedding = nn.Parameter(data=torch.randn(num_classes, self.model.feature_dim), requires_grad=True).cuda()
+        # self.label_embedding = nn.Linear(1, self.model.feature_dim).cuda()
         self.label_embedding_optim = torch.optim.Adam(lr=0.0005, params=self.label_embedding.parameters())
 
     def create_validation_classifier(self, linear_model=True):
@@ -1012,6 +1014,7 @@ class GaussianFeaturePrompt(Prompt):
                 prototype = cluster_model.get_centroids()
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
                 check_tensor_nan(prototype, "prototype")
+                self.label_embedding.data[:,class_id - self.last_valid_out_dim] = torch.mean(prototype, dim=1)
             return prototype_set
 
     def _update_key_prototype(self, train_loader):
