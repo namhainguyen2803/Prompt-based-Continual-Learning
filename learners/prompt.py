@@ -612,7 +612,7 @@ class GaussianFeaturePrompt(Prompt):
         self.get_distribution(train_loader=train_loader)
         print(f"Finish learning Gaussian distribution for each class of task id: {self.model.task_id}")
         print(f"##### Attempt to learn validation classifier in task id: {self.model.task_id}. #####")
-        self.learn_validation_classifier()
+        self.learn_validation_classifier(val_loader=val_loader)
         print(f"##### Finish learning validation classifier in task id: {self.model.task_id}. #####")
 
     def get_distribution(self, train_loader):
@@ -940,7 +940,10 @@ class GaussianFeaturePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc, num_correct_task, unique_task
 
-    def learn_validation_classifier(self, max_iter=20, lr=0.01):
+    # def _evaluate_validation_classifier(self, data_loader):
+
+
+    def learn_validation_classifier(self, max_iter=20, lr=0.01, val_loader=None):
         self.create_validation_classifier(linear_model=True)
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
@@ -983,7 +986,8 @@ class GaussianFeaturePrompt(Prompt):
                 classifier_optimizer.step()
                 loss += total_loss.detach()
             if iter % 10 == 0:
-                print(f"Learning validation classifier... iteration {iter}, loss function: {loss}")
+                acc = self.validation(dataloader=val_loader)
+                print(f"Learning validation classifier... iteration {iter}, loss function: {loss}, accuracy on validation set: {acc}")
             if loss - old_loss > UPPER_THRESHOLD:
                 break
             old_loss = loss
