@@ -803,7 +803,7 @@ class GaussianFeaturePrompt(Prompt):
         if linear_model:
             self.validation_classifier = nn.Linear(feature_dim, self.valid_out_dim).cuda()
         else:
-            self.validation_classifier = MLP(in_feature=feature_dim, hidden_features=[1024],
+            self.validation_classifier = MLP(in_feature=feature_dim, hidden_features=[1024, 256],
                                              out_feature=self.valid_out_dim).cuda()
 
     def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True, **kwargs):
@@ -985,7 +985,7 @@ class GaussianFeaturePrompt(Prompt):
         return acc
 
     def learn_validation_classifier(self, max_iter=40, lr=0.01, val_loader=None):
-        self.create_validation_classifier(linear_model=True)
+        self.create_validation_classifier(linear_model=False)
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
         classifier_optimizer = torch.optim.Adam(params=self.validation_classifier.parameters(), lr=LR)
