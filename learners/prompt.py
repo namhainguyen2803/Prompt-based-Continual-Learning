@@ -940,10 +940,35 @@ class GaussianFeaturePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc, num_correct_task, unique_task
 
-    # def _evaluate_validation_classifier(self, data_loader):
+    # def _evaluate_validation_classifier(self, dataloader, model=None, **kwargs):
+    #     U = list()
+    #     for class_id in range(self.valid_out_dim):
+    #         key = self.key_prototype[class_id].unsqueeze(0)
+    #         U.append(key)
+    #     U = torch.cat(U, dim=0)  # (num_classes, num_anchors, emb_d)
+    #
+    #     with torch.no_grad():
+    #         if model is None:
+    #             model = self.model
+    #         # This function doesn't distinguish tasks.
+    #         orig_mode = model.training
+    #         model.eval()
+    #         acc = AverageMeter()
+    #         for i, (input, target, task) in enumerate(dataloader):
+    #
+    #             if self.gpu:
+    #                 with torch.no_grad():
+    #                     input = input.cuda()
+    #                     target = target.cuda()
+    #
+    #             predicted_task = self.task_id_prediction(model, input, U, top_k=3)
+    #             feature, _ = model(input, get_logit=False, train=False, use_prompt=True,
+    #                                task_id=predicted_task, prompt_type=self.prompt_type)
+    #             output = self.validation_classifier(feature)
+    #             acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
 
 
-    def learn_validation_classifier(self, max_iter=20, lr=0.01, val_loader=None):
+    def learn_validation_classifier(self, max_iter=40, lr=0.01, val_loader=None):
         self.create_validation_classifier(linear_model=True)
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
@@ -985,7 +1010,7 @@ class GaussianFeaturePrompt(Prompt):
                 total_loss.backward()
                 classifier_optimizer.step()
                 loss += total_loss.detach()
-            if iter % 10 == 0:
+            if iter % 5 == 0:
                 acc = self.validation(dataloader=val_loader)
                 print(f"Learning validation classifier... iteration {iter}, loss function: {loss}, accuracy on validation set: {acc}")
             if loss - old_loss > UPPER_THRESHOLD:
