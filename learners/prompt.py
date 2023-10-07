@@ -977,11 +977,11 @@ class GaussianFeaturePrompt(Prompt):
 
     def _evaluate_validation_classifier(self, feature, target, classifier=None):
         with torch.no_grad():
-            acc = AverageMeter()
             if classifier is None:
                 classifier = self.validation_classifier
             output = classifier(feature)
-            acc = accumulate_acc(output, target, 0, acc, topk=(self.top_k,))
+            predicted_class = torch.max(output, dim=1).indices
+            acc = torch.sum(predicted_class == target) / target.shape[0]
         return acc
 
     def learn_validation_classifier(self, max_iter=40, lr=0.01, val_loader=None):
