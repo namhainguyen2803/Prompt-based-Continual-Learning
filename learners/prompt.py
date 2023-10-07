@@ -984,8 +984,8 @@ class GaussianFeaturePrompt(Prompt):
             acc = torch.sum(predicted_class == target) / target.shape[0]
         return acc
 
-    def learn_validation_classifier(self, max_iter=40, lr=0.01, val_loader=None):
-        self.create_validation_classifier(linear_model=True)
+    def learn_validation_classifier(self, max_iter=40, lr=0.001, val_loader=None):
+        self.create_validation_classifier(linear_model=False)
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
         classifier_optimizer = torch.optim.Adam(params=self.validation_classifier.parameters(), lr=LR)
