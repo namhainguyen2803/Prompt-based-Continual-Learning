@@ -139,7 +139,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = dict()
         self.avg_variance = dict()
         self.MLP_neck = None
-        self._num_anchor_key_prototype_per_class = 5
+        self._num_anchor_key_prototype_per_class = 10
         self._create_mapping_from_class_to_task()
 
     def create_model(self):
@@ -261,7 +261,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def _evaluate(self, model, input, target, task, acc, task_in=None, U=None):
         with torch.no_grad():
-            top_k = 2
+            top_k = 1
             # retrieve prototype set in a tensor with ascending order wrt class_id
             x_query = model.retrieve_query_vector(input)
             B, C = x_query.shape
