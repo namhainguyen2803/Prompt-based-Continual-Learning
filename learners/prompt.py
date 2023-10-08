@@ -139,7 +139,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = dict()
         self.avg_variance = dict()
         self.MLP_neck = None
-        self._num_anchor_key_prototype_per_class = 10
+        self._num_anchor_key_prototype_per_class = 20
         self._create_mapping_from_class_to_task()
 
     def create_model(self):
