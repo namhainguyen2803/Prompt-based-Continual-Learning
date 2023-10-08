@@ -193,9 +193,23 @@ class ContrastivePrototypicalPrompt(Prompt):
             uni_output = sorted(torch.unique(outputs).tolist())
             for class_id in uni_output:
                 if use_prompt:
-                    cluster_algorithm = KMeans(num_classes=self._num_anchor_value_prototype_per_class)
+
+                    clustering_params = {
+                        "num_classes": self._num_anchor_value_prototype_per_class,
+                        "max_iter": 1000,
+                        "init_times": 1
+                    }
+                    cluster_algorithm, _ = fit_kmeans_many_times(feature_set_for_class_id, **clustering_params)
+
                 else:
-                    cluster_algorithm = KMeans(num_classes=self._num_anchor_key_prototype_per_class)
+
+                    clustering_params = {
+                        "num_classes": self._num_anchor_key_prototype_per_class,
+                        "max_iter": 1000,
+                        "init_times": 1
+                    }
+                    cluster_algorithm, _ = fit_kmeans_many_times(feature_set_for_class_id, **clustering_params)
+
                 feature_set_for_class_id = last_features[outputs == class_id]
                 assert feature_set_for_class_id.ndim == 2, "feature_set_for_class_id.ndim != 2."
                 cluster_algorithm.fit(feature_set_for_class_id)

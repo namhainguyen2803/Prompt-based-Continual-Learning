@@ -24,11 +24,11 @@ mkdir -p $OUTDIR
 #    arg 1 = e-prompt pool size (# tasks)
 #    arg 2 = e-prompt pool length
 #    arg 3 = if > 0 then deep prompt else narrow prompt
-python3 -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
-    --learner_type prompt --learner_name GaussianFeaturePrompt \
-    --prompt_param 10 2 1 \
-    --log_dir ${OUTDIR}/prog \
-    --prompt_type $PROMPT_TYPE
+#python3 -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
+#    --learner_type prompt --learner_name GaussianFeaturePrompt \
+#    --prompt_param 10 2 1 \
+#    --log_dir ${OUTDIR}/prog \
+#    --prompt_type $PROMPT_TYPE
 
 
 # ProgressivePrompt
@@ -49,11 +49,11 @@ python3 -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $
 ##    arg 1 = e-prompt pool size (# tasks)
 ##    arg 2 = e-prompt pool length
 ##    arg 3 = g-prompt pool length (not necessary)
-#python3 -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
-#    --learner_type prompt --learner_name ContrastivePrototypicalPrompt \
-#    --prompt_param 10 1 2 \
-#    --log_dir ${OUTDIR}/cpp \
-#    --prompt_type $PROMPT_TYPE
+python3 -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
+    --learner_type prompt --learner_name ContrastivePrototypicalPrompt \
+    --prompt_param 10 1 2 \
+    --log_dir ${OUTDIR}/cpp \
+    --prompt_type $PROMPT_TYPE
 
 ## CODA-P
 ##
