@@ -191,6 +191,8 @@ class ContrastivePrototypicalPrompt(Prompt):
             outputs = torch.cat(list_output, dim=0)
             uni_output = sorted(torch.unique(outputs).tolist())
             for class_id in uni_output:
+                feature_set_for_class_id = last_features[outputs == class_id]
+                assert feature_set_for_class_id.ndim == 2, "feature_set_for_class_id.ndim != 2."
 
                 clustering_params = {
                     "num_classes": self._num_anchor_key_prototype_per_class,
@@ -198,10 +200,6 @@ class ContrastivePrototypicalPrompt(Prompt):
                     "init_times": 1
                 }
                 cluster_algorithm, _ = fit_kmeans_many_times(feature_set_for_class_id, **clustering_params)
-
-                feature_set_for_class_id = last_features[outputs == class_id]
-                assert feature_set_for_class_id.ndim == 2, "feature_set_for_class_id.ndim != 2."
-                cluster_algorithm.fit(feature_set_for_class_id)
                 prototype = cluster_algorithm.get_centroids()
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
 
