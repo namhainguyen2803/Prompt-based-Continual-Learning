@@ -261,7 +261,7 @@ class ContrastivePrototypicalPrompt(Prompt):
 
     def _evaluate(self, model, input, target, task, acc, task_in=None, U=None):
         with torch.no_grad():
-            top_k = model.prompt.top_k
+            top_k = 1
             # retrieve prototype set in a tensor with ascending order wrt class_id
             x_query = model.retrieve_query_vector(input)
             B, C = x_query.shape
