@@ -14,6 +14,10 @@ from .default import NormalNN, accumulate_acc
 from models.ClusterAlgorithm import KMeans, fit_kmeans_many_times
 from models.EmbeddingProjection import EmbeddingMLP, MLP
 
+import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
+
+
 
 class Prompt(NormalNN):
 
@@ -637,6 +641,8 @@ class GaussianFeaturePrompt(Prompt):
 
             unique_Y = torch.unique(all_y)
 
+            list_features = list()
+            list_centroids = list()
             for label in unique_Y:
                 label = label.item()
                 learning_dist_model_params = {
@@ -648,12 +654,24 @@ class GaussianFeaturePrompt(Prompt):
                 feature, _ = self.model(x=X_class, get_logit=False, train=False,
                                         use_prompt=True, task_id=None, prompt_type=self.prompt_type)
                 feature = feature.cpu()
+
                 print(f"##### LEARN MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
                 dist.learn_distribution(feature)
                 print(f"##### FINISH LEARNING MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
                 print()
                 print(f"In label: {label}, log likelihood: {torch.mean(dist.log_likelihood(feature))}")
                 self.distribution[label] = dist
+
+                chosen_features = feature[200:, :]
+                mean_data = dist.mean.reshape(1, -1)
+                list_centroids.append(mean_data)
+                list_features.append(chosen_features)
+                plot_tsne(feature, mean_data, f"plot/task_{self.model.task_id+1}/tsne_plot_feature_{label}.png")
+
+            list_features = torch.cat(list_features, dim=0)
+            list_centroids = torch.cat(list_centroids, dim=0)
+            plot_tsne(list_features, list_centroids, f"plot/task_{self.model.task_id+1}/tsne_plot_{label}.png")
+
 
     def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
 
@@ -752,14 +770,14 @@ class GaussianFeaturePrompt(Prompt):
 
         # pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
         pseudo_mean = self.label_embedding[targets.to(torch.int32), :]
-        normalized_mean = nn.functional.normalize(pseudo_mean, dim=-1)
-        normalized_label_embedding = nn.functional.normalize(self.label_embedding, dim=-1)
 
-        penalty = torch.sum(torch.matmul(normalized_mean, normalized_label_embedding.T)) - \
-                  torch.sum(torch.diagonal(torch.matmul(normalized_mean, normalized_mean.T)))
+        # normalized_mean = nn.functional.normalize(pseudo_mean, dim=-1)
+        # normalized_label_embedding = nn.functional.normalize(self.label_embedding, dim=-1)
 
-        gaussian_penalty = torch.mean(torch.sum((feature - pseudo_mean) ** 2, dim=1)) - \
-                           0.1 * penalty
+        # penalty = torch.sum(torch.matmul(normalized_mean, normalized_label_embedding.T)) - \
+        #           torch.sum(torch.diagonal(torch.matmul(normalized_mean, normalized_mean.T)))
+
+        gaussian_penalty = torch.mean(torch.sum((feature - pseudo_mean) ** 2, dim=1))
 
         # ce with heuristic
         # if self.model.task_id == 0:
@@ -821,7 +839,7 @@ class GaussianFeaturePrompt(Prompt):
                 mean_dist = distribution.mean
                 new_embed.data[label, :] = mean_dist
             self.label_embedding = new_embed
-            self.label_embedding_optim = torch.optim.Adam(lr=lr, params=[self.label_embedding[num_class_so_far+1:,:]])
+            self.label_embedding_optim = torch.optim.Adam(lr=lr, params=[self.label_embedding])
 
     def create_validation_classifier(self, linear_model=True):
         feature_dim = self.model.feature_dim
@@ -1117,6 +1135,30 @@ class GaussianFeaturePrompt(Prompt):
         num_classes = len(self.tasks[task_id])
         model = nn.Linear(in_features=feature_dim, out_features=num_classes).cuda()
         self.classifier_dict[task_id] = model
+
+
+def plot_tsne(data, highlight_points=None, output_filename=None):
+    tsne = TSNE(n_components=2, perplexity=30, random_state=42)
+    X_tsne = tsne.fit_transform(data)
+    plt.figure(figsize=(8, 6))
+    plt.scatter(X_tsne[:, 0], X_tsne[:, 1], marker='o', s=20, alpha=0.5, label='Datapoints')
+
+    if highlight_points is not None:
+        if isinstance(highlight_points, torch.Tensor):
+            highlight_points = highlight_points.numpy()
+        plt.scatter(highlight_points[:, 0], highlight_points[:, 1], marker='*', s=100, c='red', label='Centroids')
+
+    plt.title('t-SNE Visualization')
+    plt.xlabel('t-SNE Dimension 1')
+    plt.ylabel('t-SNE Dimension 2')
+    plt.grid(True)
+    if highlight_points is not None:
+        plt.legend()
+
+    if output_filename:
+        plt.savefig(output_filename)
+
+    plt.show()
 
 
 def check_tensor_nan(tensor, tensor_name="a"):
