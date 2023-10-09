@@ -675,6 +675,7 @@ class GaussianFeaturePrompt(Prompt):
 
             list_features = torch.cat(list_features, dim=0)
             list_centroids = torch.cat(list_centroids, dim=0)
+            print(f"Plot feature and centroids: {list_features.shape, list_centroids.shape}")
             plot_tsne(list_features, list_centroids, plot_save_dir + f"/tsne_plot_prompt_all_{label}.png")
 
 
