@@ -651,6 +651,8 @@ class GaussianFeaturePrompt(Prompt):
                 print(f"##### LEARN MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
                 dist.learn_distribution(feature)
                 print(f"##### FINISH LEARNING MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
+                print()
+                print(f"In label: {label}, log likelihood: {torch.mean(dist.log_likelihood(X_class))}")
                 self.distribution[label] = dist
 
     def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
@@ -675,6 +677,10 @@ class GaussianFeaturePrompt(Prompt):
             acc = AverageMeter()
             batch_time = AverageMeter()
             batch_timer = Timer()
+
+            # self.label_embedding
+            # for label, distribution in self.distribution.items():
+
             for epoch in range(self.config['schedule'][-1]):
                 self.epoch = epoch
 
@@ -746,8 +752,12 @@ class GaussianFeaturePrompt(Prompt):
 
         # pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
         pseudo_mean = self.label_embedding[targets.to(torch.int32), :]
+        normalized_mean = nn.functional.normalize(pseudo_mean, dim=-1)
+        normalized_label_embedding = nn.functional.normalize(self.label_embedding, dim=-1)
 
-        gaussian_penalty = torch.mean(torch.sum((feature - pseudo_mean) ** 2, dim=1))
+        gaussian_penalty = torch.mean(torch.sum((feature - pseudo_mean) ** 2, dim=1)) - \
+                           0.1 * (torch.matmul(normalized_mean, normalized_label_embedding.T) -
+                            torch.diag(normalized_mean, normalized_mean.T))
 
         # ce with heuristic
         # if self.model.task_id == 0:
@@ -758,10 +768,10 @@ class GaussianFeaturePrompt(Prompt):
 
         # step
         self.optimizer.zero_grad()
-        # self.label_embedding_optim.zero_grad()
+        self.label_embedding_optim.zero_grad()
         total_loss.backward()
         self.optimizer.step()
-        # self.label_embedding_optim.step()
+        self.label_embedding_optim.step()
 
         return total_loss.detach(), gaussian_penalty.detach(), logit
 
@@ -790,13 +800,26 @@ class GaussianFeaturePrompt(Prompt):
         else:
             yield x_train, y_train
 
-    def create_label_embedding(self, task):
+    def create_label_embedding(self, task, lr=0.001):
         task_info = self.tasks[task]
         num_classes = len(task_info)
-        self.label_embedding = nn.Parameter(data=torch.randn(num_classes, self.model.feature_dim, device='cuda'),
-                                            requires_grad=False)
-        # self.label_embedding = nn.Linear(1, self.model.feature_dim).cuda()
-        # self.label_embedding_optim = torch.optim.Adam(lr=0.0005, params=[self.label_embedding])
+
+        if self.label_embedding is None:  # first task
+            self.label_embedding = nn.Parameter(data=torch.randn(num_classes, self.model.feature_dim, device='cuda'),
+                                                requires_grad=True)
+            self.label_embedding_optim = torch.optim.Adam(lr=lr, params=[self.label_embedding])
+
+        else:
+            num_class_so_far = self.label_embedding.shape[0]
+            total_classes = num_class_so_far + num_classes
+            new_embed = nn.Parameter(data=torch.randn(total_classes, self.model.feature_dim, device='cuda'),
+                                     requires_grad=True)
+
+            for label, distribution in self.distribution.items():
+                mean_dist = distribution.mean
+                new_embed.data[label, :] = mean_dist
+            self.label_embedding = new_embed
+            self.label_embedding_optim = torch.optim.Adam(lr=lr, params=[self.label_embedding[num_class_so_far+1:,:]])
 
     def create_validation_classifier(self, linear_model=True):
         feature_dim = self.model.feature_dim
@@ -847,9 +870,9 @@ class GaussianFeaturePrompt(Prompt):
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
             flatten_possible_task_id = flatten_possible_task_id.squeeze(-1)
 
-            inp = input.unsqueeze(0) # (1, B, C, H, W)
-            input_repeat = inp.repeat(top_k, 1, 1, 1, 1) # (top_k, B, C, H, W)
-            input_repeat = input_repeat.permute(1, 0, 2, 3, 4) # (B, top_k, C, H, W)
+            inp = input.unsqueeze(0)  # (1, B, C, H, W)
+            input_repeat = inp.repeat(top_k, 1, 1, 1, 1)  # (top_k, B, C, H, W)
+            input_repeat = input_repeat.permute(1, 0, 2, 3, 4)  # (B, top_k, C, H, W)
             input_repeat = input_repeat.reshape(-1, input_repeat.shape[2], input_repeat.shape[3], input_repeat.shape[4])
 
             last_feature, _ = self.model(input_repeat, get_logit=False, train=False,
