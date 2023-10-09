@@ -652,7 +652,7 @@ class GaussianFeaturePrompt(Prompt):
                 dist.learn_distribution(feature)
                 print(f"##### FINISH LEARNING MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
                 print()
-                print(f"In label: {label}, log likelihood: {torch.mean(dist.log_likelihood(X_class))}")
+                print(f"In label: {label}, log likelihood: {torch.mean(dist.log_likelihood(feature))}")
                 self.distribution[label] = dist
 
     def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
