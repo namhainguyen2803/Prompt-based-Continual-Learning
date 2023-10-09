@@ -178,6 +178,9 @@ class Trainer:
         # for each task
         for i in range(self.max_task):
 
+            if i > 0:
+                break
+                
             # save current task index
             self.current_t_index = i
 
