@@ -624,6 +624,9 @@ class GaussianFeaturePrompt(Prompt):
         """
         Learn distribution for each class in current task
         """
+        plot_save_dir = f"plot/task_{self.model.task_id + 1}"
+        if not os.path.exists(plot_save_dir):
+            os.makedirs(plot_save_dir)
         with torch.no_grad():
             all_x = list()
             all_y = list()
@@ -668,15 +671,11 @@ class GaussianFeaturePrompt(Prompt):
                 list_centroids.append(mean_data)
                 list_features.append(chosen_features)
 
-                plot_save_dir = f"plot/task_{self.model.task_id+1}/tsne_plot_prompt_feature_{label}.png"
-                if not os.path.exists(plot_save_dir):
-                    os.makedirs(plot_save_dir)
-                plot_tsne(feature, mean_data, plot_save_dir)
+                plot_tsne(feature, mean_data, plot_save_dir + f"/tsne_plot_prompt_feature_{label}.png")
 
             list_features = torch.cat(list_features, dim=0)
             list_centroids = torch.cat(list_centroids, dim=0)
-            plot_save_dir = f"plot/task_{self.model.task_id+1}/tsne_plot_prompt_all_{label}.png"
-            plot_tsne(list_features, list_centroids, plot_save_dir)
+            plot_tsne(list_features, list_centroids, plot_save_dir + f"/tsne_plot_prompt_all_{label}.png")
 
 
     def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
