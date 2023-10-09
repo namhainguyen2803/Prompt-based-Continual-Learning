@@ -602,7 +602,7 @@ class GaussianFeaturePrompt(Prompt):
             for class_id in class_range:
                 self.mapping_class_to_task[class_id] = task_id
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True, plot_dir=None):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True):
         self.create_classifier(self.model.task_id)  # create classifier for each task
         self.create_label_embedding(self.model.task_id)
         print(f"Create classifier for task id {self.model.task_id}")
@@ -614,13 +614,13 @@ class GaussianFeaturePrompt(Prompt):
         print(f"##### Finish learning batch in task id: {self.model.task_id}. #####")
         print()
         print(f"Start learning Gaussian distribution for each class of task id: {self.model.task_id}")
-        self.get_distribution(train_loader=train_loader, plot_dir=plot_dir)
+        self.get_distribution(train_loader=train_loader)
         print(f"Finish learning Gaussian distribution for each class of task id: {self.model.task_id}")
         print(f"##### Attempt to learn validation classifier in task id: {self.model.task_id}. #####")
         self.learn_validation_classifier(val_loader=val_loader)
         print(f"##### Finish learning validation classifier in task id: {self.model.task_id}. #####")
 
-    def get_distribution(self, train_loader, plot_dir=None):
+    def get_distribution(self, train_loader):
         """
         Learn distribution for each class in current task
         """
@@ -668,14 +668,14 @@ class GaussianFeaturePrompt(Prompt):
                 list_centroids.append(mean_data)
                 list_features.append(chosen_features)
 
-                plot_save_dir = plot_dir + f"/task_{self.model.task_id+1}/tsne_plot_prompt_feature_{label}.png"
+                plot_save_dir = f"plot/task_{self.model.task_id+1}/tsne_plot_prompt_feature_{label}.png"
                 if not os.path.exists(plot_save_dir):
                     os.makedirs(plot_save_dir)
                 plot_tsne(feature, mean_data, plot_save_dir)
 
             list_features = torch.cat(list_features, dim=0)
             list_centroids = torch.cat(list_centroids, dim=0)
-            plot_save_dir = plot_dir + f"/task_{self.model.task_id+1}/tsne_plot_prompt_all_{label}.png"
+            plot_save_dir = f"plot/task_{self.model.task_id+1}/tsne_plot_prompt_all_{label}.png"
             plot_tsne(list_features, list_centroids, plot_save_dir)
 
 
