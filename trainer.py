@@ -180,7 +180,7 @@ class Trainer:
 
             if i > 0:
                 break
-                
+
             # save current task index
             self.current_t_index = i
 
