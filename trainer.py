@@ -226,9 +226,13 @@ class Trainer:
                                      num_workers=self.workers)
             model_save_dir = self.model_top_dir + '/models/repeat-' + str(self.seed + 1) + '/task-' + self.task_names[
                 i] + '/'
+
+            plot_save_dir = self.model_top_dir + '/plot'
             if not os.path.exists(model_save_dir):
                 os.makedirs(model_save_dir)
-            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader)
+            if not os.path.exists(plot_save_dir):
+                os.makedirs(plot_save_dir)
+            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader, plot_save_dir)
 
             # save model
             self.learner.save_model(model_save_dir)
