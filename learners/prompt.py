@@ -755,9 +755,11 @@ class GaussianFeaturePrompt(Prompt):
         normalized_mean = nn.functional.normalize(pseudo_mean, dim=-1)
         normalized_label_embedding = nn.functional.normalize(self.label_embedding, dim=-1)
 
+        penalty = torch.sum(torch.matmul(normalized_mean, normalized_label_embedding.T)) + \
+                  torch.sum(torch.diag(normalized_mean, normalized_mean.T))
+
         gaussian_penalty = torch.mean(torch.sum((feature - pseudo_mean) ** 2, dim=1)) - \
-                           0.1 * (torch.matmul(normalized_mean, normalized_label_embedding.T) -
-                            torch.diag(normalized_mean, normalized_mean.T))
+                           0.1 * penalty
 
         # ce with heuristic
         # if self.model.task_id == 0:
