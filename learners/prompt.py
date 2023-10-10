@@ -603,7 +603,7 @@ class GaussianFeaturePrompt(Prompt):
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True):
         self.create_classifier(self.model.task_id)  # create classifier for each task
-        self.create_label_embedding()
+        self.create_label_embedding(self.model.task_id)
         print(f"Create classifier for task id {self.model.task_id}")
         self._update_key_prototype(train_loader)
         # learn prompt
