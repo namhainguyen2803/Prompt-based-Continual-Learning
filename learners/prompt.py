@@ -1116,23 +1116,31 @@ class GaussianFeaturePrompt(Prompt):
         self.classifier_dict[task_id] = model
 
 
-def plot_tsne(data, highlight_points=None, output_filename=None):
+def plot_tsne(data, centroids=None, output_filename=None):
     with torch.no_grad():
         tsne = TSNE(n_components=2, perplexity=30, random_state=42)
-        X_tsne = tsne.fit_transform(data)
-        plt.figure(figsize=(8, 6))
-        plt.scatter(X_tsne[:, 0], X_tsne[:, 1], marker='o', s=20, alpha=0.5, label='Datapoints')
+        if centroids is not None:
+            num_data = data.shape[0]
+            data = torch.cat((data, centroids), dim=0)
+            X_tsne = tsne.fit_transform(data)
 
-        if highlight_points is not None:
-            if isinstance(highlight_points, torch.Tensor):
-                highlight_points = highlight_points.numpy()
-            plt.scatter(highlight_points[:, 0], highlight_points[:, 1], marker='*', s=100, c='red', label='Centroids')
+            tsne_data = X_tsne[:num_data]
+            tsne_centroids = X_tsne[num_data:]
+
+            plt.figure(figsize=(8, 6))
+            plt.scatter(tsne_data[:, 0], tsne_data[:, 1], marker='o', s=20, alpha=0.5, label='Datapoints')
+            plt.scatter(tsne_centroids[:, 0], tsne_centroids[:, 1], marker='*', s=100, c='red', label='Centroids')
+
+        else:
+            X_tsne = tsne.fit_transform(data)
+            plt.figure(figsize=(8, 6))
+            plt.scatter(X_tsne[:, 0], X_tsne[:, 1], marker='o', s=20, alpha=0.5, label='Datapoints')
 
         plt.title('t-SNE Visualization')
         plt.xlabel('t-SNE Dimension 1')
         plt.ylabel('t-SNE Dimension 2')
         plt.grid(True)
-        if highlight_points is not None:
+        if centroids is not None:
             plt.legend()
 
         if output_filename:
