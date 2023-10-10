@@ -811,15 +811,13 @@ class GaussianFeaturePrompt(Prompt):
         task_info = self.tasks[task]
         num_classes = len(task_info)
 
-        if self.label_embedding is None:  # first task
+        if self.model.task_id == 0:  # first task
             self.label_embedding = nn.Parameter(data=torch.randn(num_classes, self.model.feature_dim, device='cuda'),
                                                 requires_grad=True)
             self.label_embedding_optim = torch.optim.Adam(lr=lr, params=[self.label_embedding])
 
         else:
-            num_class_so_far = self.label_embedding.shape[0]
-            total_classes = num_class_so_far + num_classes
-            new_embed = nn.Parameter(data=torch.randn(total_classes, self.model.feature_dim, device='cuda'),
+            new_embed = nn.Parameter(data=torch.randn(self.valid_out_dim, self.model.feature_dim, device='cuda'),
                                      requires_grad=True)
 
             for label, distribution in self.distribution.items():
@@ -827,7 +825,7 @@ class GaussianFeaturePrompt(Prompt):
                 new_embed.data[label, :] = mean_dist
             self.label_embedding = new_embed
             self.label_embedding_optim = torch.optim.Adam(lr=lr, params=[self.label_embedding])
-
+        print(f"In task: {self.model.task_id}, create label embedding: {self.label_embedding.shape}")
     def create_validation_classifier(self, linear_model=True):
         feature_dim = self.model.feature_dim
         if linear_model:
@@ -1109,7 +1107,7 @@ class GaussianFeaturePrompt(Prompt):
 
                 # initialize label_embedding data
                 feature_with_prompt_for_class = last_feature_with_prompt[outputs == class_id]
-                self.label_embedding.data[class_id - self.last_valid_out_dim, :] = \
+                self.label_embedding.data[class_id, :] = \
                     torch.mean(feature_with_prompt_for_class, dim=0)
 
             return prototype_set
