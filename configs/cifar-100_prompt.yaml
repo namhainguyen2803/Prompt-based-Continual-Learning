@@ -2,11 +2,11 @@ dataset: CIFAR100
 first_split_size: 10
 other_split_size: 10
 schedule:
-- 30
+- 2
 schedule_type: cosine
 batch_size: 64
 optimizer: Adam
-lr: 0.005
+lr: 1
 momentum: 0.9
 weight_decay: 0
 model_type: zoo
