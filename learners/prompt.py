@@ -602,7 +602,7 @@ class GaussianFeaturePrompt(Prompt):
             for class_id in class_range:
                 self.mapping_class_to_task[class_id] = task_id
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
         self.create_classifier(self.model.task_id)  # create classifier for each task
         self.create_label_embedding(self.model.task_id)
         print(f"Create classifier for task id {self.model.task_id}")
@@ -689,33 +689,22 @@ class GaussianFeaturePrompt(Prompt):
                 need_train = False
             except:
                 pass
-
         # trains
         if self.reset_optimizer:  # Reset optimizer before learning each task
             self.log('Optimizer is reset!')
             self.init_optimizer()
-
         if need_train:
             # data weighting
             losses = AverageMeter()
-            acc = AverageMeter()
             batch_time = AverageMeter()
             batch_timer = Timer()
-
-            # self.label_embedding
-            # for label, distribution in self.distribution.items():
-
             for epoch in range(self.config['schedule'][-1]):
                 self.epoch = epoch
-
                 if epoch > 0:
                     self.scheduler.step()
                 for param_group in self.optimizer.param_groups:
                     self.log('LR:', param_group['lr'])
-
                 batch_timer.tic()
-                total_gaussian_loss = 0
-                num_training = 0
                 for i, (x, y, task) in enumerate(train_loader):
                     if normalize_target:
                         y = y - self.last_valid_out_dim
@@ -728,7 +717,7 @@ class GaussianFeaturePrompt(Prompt):
                         y = y.cuda()
 
                     # model update
-                    loss, gaussian_loss, output = self.update_model(x, y)
+                    loss = self.update_model(x, y)
 
                     # measure elapsed time
                     batch_time.update(batch_timer.toc())
@@ -736,22 +725,14 @@ class GaussianFeaturePrompt(Prompt):
 
                     # measure accuracy and record loss
                     y = y.detach()
-                    accumulate_acc(output, y, task, acc, topk=(self.top_k,))
                     losses.update(loss, y.size(0))
                     batch_timer.tic()
-
-                    total_gaussian_loss += gaussian_loss
-                    num_training += x.shape[0]
                 # eval update
                 self.log(
                     'Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=self.epoch + 1, total=self.config['schedule'][-1]))
-                self.log(' * Loss {loss.avg:.3f} Gaussian Loss {gauss_loss: .3f} | Train Acc {acc.avg:.3f}'
-                         .format(loss=losses, gauss_loss=total_gaussian_loss / num_training, acc=acc))
-
+                self.log(' * Loss {loss.avg:.3f}'.format(loss=losses))
                 # reset
                 losses = AverageMeter()
-                acc = AverageMeter()
-
         self.model.eval()
 
         self.last_valid_out_dim = self.valid_out_dim
@@ -772,7 +753,7 @@ class GaussianFeaturePrompt(Prompt):
         feature, _ = self.model(x=inputs, get_logit=False, train=True,
                                 use_prompt=True, task_id=None, prompt_type=self.prompt_type)
 
-        logit = self.classifier_dict[self.model.task_id](feature)
+        # logit = self.classifier_dict[self.model.task_id](feature)
 
         # pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
         pseudo_mean = self.label_embedding[targets.to(torch.int32), :]
@@ -799,7 +780,7 @@ class GaussianFeaturePrompt(Prompt):
         self.optimizer.step()
         self.label_embedding_optim.step()
 
-        return total_loss.detach(), gaussian_penalty.detach(), logit
+        return total_loss.detach()
 
     def _generate_synthesis_prototype(self, num_sample=256):
         x_synthesis = list()
