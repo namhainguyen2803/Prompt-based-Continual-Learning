@@ -674,7 +674,7 @@ class GaussianFeaturePrompt(Prompt):
             list_centroids = torch.cat(list_centroids, dim=0)
             centroids_diff = torch.sum(list_centroids.unsqueeze(1) - list_centroids.unsqueeze(0), dim=-1)
             print(f"Centroid diff: {centroids_diff}")
-            plot_many_tsne(list_data, plot_save_dir + f"/tsne_plot_prompt_all_200.png")
+            plot_many_tsne(list_data, plot_save_dir + f"/tsne_plot_prompt_all_500.png")
 
     def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
 
@@ -1144,7 +1144,7 @@ def plot_many_tsne(list_data, plotted_file):
     ]
 
     with torch.no_grad():
-        tsne = TSNE(n_components=2, perplexity=30, random_state=42)
+        tsne = TSNE(n_components=2, perplexity=500, random_state=42)
         all_data = list()
         bookmark = list()
         for data_dict in list_data:
@@ -1164,6 +1164,7 @@ def plot_many_tsne(list_data, plotted_file):
         data = torch.cat(all_data, dim=0)
         X_tsne = tsne.fit_transform(data)
 
+        plt.figure(figsize=(8, 6))
         for i in range(len(bookmark)):
             b = bookmark[i]
             b_data = b[0]
@@ -1173,7 +1174,6 @@ def plot_many_tsne(list_data, plotted_file):
             centroid_class = X_tsne[b_centroid[0], b_centroid[1]]
             color = color_list[i]
 
-            plt.figure(figsize=(8, 6))
             plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.5)
             plt.scatter(centroid_class[:, 0], centroid_class[:, 1], marker='*', s=100, c=color)
 
