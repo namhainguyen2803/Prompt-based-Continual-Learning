@@ -624,6 +624,9 @@ class GaussianFeaturePrompt(Prompt):
         Learn distribution for each class in current task
         """
         with torch.no_grad():
+            plot_save_dir = f"plot/task_{self.model.task_id + 1}"
+            if not os.path.exists(plot_save_dir):
+                os.makedirs(plot_save_dir)
             all_x = list()
             all_y = list()
             for i, (x, y, task) in enumerate(train_loader):
@@ -640,7 +643,8 @@ class GaussianFeaturePrompt(Prompt):
             all_y = torch.cat(all_y, dim=0)
 
             unique_Y = torch.unique(all_y)
-
+            list_features = list()
+            list_centroids = list()
             for label in unique_Y:
                 label = label.item()
                 learning_dist_model_params = {
@@ -656,6 +660,18 @@ class GaussianFeaturePrompt(Prompt):
                 dist.learn_distribution(feature)
                 print(f"##### FINISH LEARNING MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
                 self.distribution[label] = dist
+
+                chosen_features = feature[:500, :]
+                mean_data = dist.mean.reshape(1, -1)
+                list_centroids.append(mean_data)
+                list_features.append(chosen_features)
+
+                plot_tsne(feature, mean_data, plot_save_dir + f"/tsne_plot_prompt_feature_{label}.png")
+
+            list_features = torch.cat(list_features, dim=0)
+            list_centroids = torch.cat(list_centroids, dim=0)
+            print(f"Plot feature and centroids: {list_features.shape, list_centroids.shape}")
+            plot_tsne(list_features, list_centroids, plot_save_dir + f"/tsne_plot_prompt_all_200.png")
 
     def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
 
@@ -1097,6 +1113,30 @@ class GaussianFeaturePrompt(Prompt):
         model = nn.Linear(in_features=feature_dim, out_features=num_classes).cuda()
         self.classifier_dict[task_id] = model
 
+
+def plot_tsne(data, highlight_points=None, output_filename=None):
+    with torch.no_grad():
+        tsne = TSNE(n_components=2, perplexity=30, random_state=42)
+        X_tsne = tsne.fit_transform(data)
+        plt.figure(figsize=(8, 6))
+        plt.scatter(X_tsne[:, 0], X_tsne[:, 1], marker='o', s=20, alpha=0.5, label='Datapoints')
+
+        if highlight_points is not None:
+            if isinstance(highlight_points, torch.Tensor):
+                highlight_points = highlight_points.numpy()
+            plt.scatter(highlight_points[:, 0], highlight_points[:, 1], marker='*', s=100, c='red', label='Centroids')
+
+        plt.title('t-SNE Visualization')
+        plt.xlabel('t-SNE Dimension 1')
+        plt.ylabel('t-SNE Dimension 2')
+        plt.grid(True)
+        if highlight_points is not None:
+            plt.legend()
+
+        if output_filename:
+            plt.savefig(output_filename)
+
+        plt.show()
 
 def check_tensor_nan(tensor, tensor_name="a"):
     has_nan = torch.isnan(tensor).any().item()
