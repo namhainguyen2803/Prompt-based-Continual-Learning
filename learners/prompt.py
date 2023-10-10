@@ -643,8 +643,8 @@ class GaussianFeaturePrompt(Prompt):
             all_y = torch.cat(all_y, dim=0)
 
             unique_Y = torch.unique(all_y)
-            list_features = list()
             list_centroids = list()
+            list_data = list()
             for label in unique_Y:
                 label = label.item()
                 learning_dist_model_params = {
@@ -663,17 +663,18 @@ class GaussianFeaturePrompt(Prompt):
 
                 chosen_features = feature[:500, :]
                 mean_data = dist.mean.reshape(1, -1)
+
+                dict_data = {
+                    "data": chosen_features,
+                    "centroid":mean_data
+                }
+                list_data.append(dict_data)
                 list_centroids.append(mean_data)
-                list_features.append(chosen_features)
 
-                plot_tsne(feature, mean_data, plot_save_dir + f"/tsne_plot_prompt_feature_{label}.png")
-
-            list_features = torch.cat(list_features, dim=0)
             list_centroids = torch.cat(list_centroids, dim=0)
-            centroids_diff = torch.sum(list_centroids.unsqueeze(1) - list_features.unsqueeze(0), dim=-1)
+            centroids_diff = torch.sum(list_centroids.unsqueeze(1) - list_centroids.unsqueeze(0), dim=-1)
             print(f"Centroid diff: {centroids_diff}")
-            print(f"Plot feature and centroids: {list_features.shape, list_centroids.shape}")
-            plot_tsne(list_features, list_centroids, plot_save_dir + f"/tsne_plot_prompt_all_200.png")
+            plot_many_tsne(list_data, plot_save_dir + f"/tsne_plot_prompt_all_200.png")
 
     def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
 
@@ -1116,6 +1117,74 @@ class GaussianFeaturePrompt(Prompt):
         self.classifier_dict[task_id] = model
 
 
+def plot_many_tsne(list_data, plotted_file):
+    color_list = [
+        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+        "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+        "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5",
+        "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5",
+        "#393b79", "#e6ab02", "#01a2d9", "#a6761d", "#ff33a1",
+        "#ff009b", "#a6a6a6", "#636363", "#d9d9d9", "#737373",
+        "#252525", "#525252", "#969696", "#cccccc", "#696969",
+        "#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00",
+        "#ffff33", "#a65628", "#f781bf", "#999999", "#66c2a5",
+        "#fc8d62", "#8da0cb", "#e78ac3", "#a6d854", "#ffd92f",
+        "#e5c494", "#b3b3cc", "#cab2d6", "#ff6666", "#c2c2f0",
+        "#ffb3e6", "#c2f0c2", "#ffcc99", "#c2c2a3", "#ff9999",
+        "#ffcc66", "#ffff99", "#ccffcc", "#cce6ff", "#99ccff",
+        "#cc99ff", "#ff99cc", "#ffccff", "#b3e0ff", "#ffcc00",
+        "#ccff00", "#99ff00", "#ffcc33", "#ccff33", "#99ff33",
+        "#ffcc66", "#ccff66", "#99ff66", "#ffcc99", "#ccff99",
+        "#99ff99", "#ffcccc", "#ccffcc", "#99ffcc", "#ffffff",
+        "#cccccc", "#333333", "#993300", "#009900", "#000099",
+        "#990099", "#009999", "#999900", "#990000", "#009900",
+        "#990099", "#009999", "#999900", "#009933", "#990033",
+        "#003399", "#993399", "#339900", "#339933", "#339966",
+        "#660033", "#660099", "#996600", "#ff0033", "#ff0099"
+    ]
+
+    with torch.no_grad():
+        tsne = TSNE(n_components=2, perplexity=30, random_state=42)
+        all_data = list()
+        bookmark = list()
+        for data_dict in list_data:
+            centroid = data_dict["centroid"]
+            data = data_dict["data"]
+            num_data = data.shape[0]
+            num_centroid = centroid.shape[0]
+            if len(bookmark) == 0:
+                bookmark.append([[0, num_data], [num_data, num_data+num_centroid]])
+            else:
+                prev_len = bookmark[-1][1]
+                bookmark.append([[prev_len, num_data+prev_len], [num_data, num_data+num_centroid]])
+
+            all_data.append(data)
+            all_data.append(centroid)
+
+        data = torch.cat(all_data, dim=0)
+        X_tsne = tsne.fit_transform(data)
+
+        for i in range(len(bookmark)):
+            b = bookmark[i]
+            b_data = b[0]
+            b_centroid = b[1]
+
+            data_class = X_tsne[b_data[0], b_data[1]]
+            centroid_class = X_tsne[b_centroid[0], b_centroid[1]]
+            color = color_list[i]
+
+            plt.figure(figsize=(8, 6))
+            plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.5)
+            plt.scatter(centroid_class[:, 0], centroid_class[:, 1], marker='*', s=100, c=color)
+
+        plt.title('t-SNE Visualization')
+        plt.xlabel('t-SNE Dimension 1')
+        plt.ylabel('t-SNE Dimension 2')
+        plt.grid(True)
+        plt.legend()
+        plt.savefig(plotted_file)
+        plt.show()
+
 def plot_tsne(data, centroids=None, output_filename=None):
     with torch.no_grad():
         tsne = TSNE(n_components=2, perplexity=30, random_state=42)
@@ -1140,12 +1209,8 @@ def plot_tsne(data, centroids=None, output_filename=None):
         plt.xlabel('t-SNE Dimension 1')
         plt.ylabel('t-SNE Dimension 2')
         plt.grid(True)
-        if centroids is not None:
-            plt.legend()
-
-        if output_filename:
-            plt.savefig(output_filename)
-
+        plt.legend()
+        plt.savefig(output_filename)
         plt.show()
 
 def check_tensor_nan(tensor, tensor_name="a"):
