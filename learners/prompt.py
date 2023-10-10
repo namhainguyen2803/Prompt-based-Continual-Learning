@@ -1,5 +1,6 @@
 from __future__ import print_function
 
+import os
 import random
 
 import numpy as np
@@ -13,6 +14,9 @@ from utils.schedulers import CosineSchedule
 from .default import NormalNN, accumulate_acc
 from models.ClusterAlgorithm import KMeans, fit_kmeans_many_times
 from models.EmbeddingProjection import EmbeddingMLP, MLP
+
+import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
 
 
 class Prompt(NormalNN):
@@ -612,7 +616,7 @@ class GaussianFeaturePrompt(Prompt):
         self.get_distribution(train_loader=train_loader)
         print(f"Finish learning Gaussian distribution for each class of task id: {self.model.task_id}")
         print(f"##### Attempt to learn validation classifier in task id: {self.model.task_id}. #####")
-        self.learn_validation_classifier()
+        self.learn_validation_classifier(val_loader=val_loader)
         print(f"##### Finish learning validation classifier in task id: {self.model.task_id}. #####")
 
     def get_distribution(self, train_loader):
@@ -625,6 +629,7 @@ class GaussianFeaturePrompt(Prompt):
             for i, (x, y, task) in enumerate(train_loader):
                 # verify in train mode
                 self.model.train()
+
                 if self.gpu:
                     x = x.cuda()
                     y = y.cuda()
@@ -750,6 +755,7 @@ class GaussianFeaturePrompt(Prompt):
 
         # ce with heuristic
         # if self.model.task_id == 0:
+        # total_loss = self.criterion(logit, targets.long()) + 0.001 * gaussian_penalty
         total_loss = gaussian_penalty
         # else:
         #     kl_div =
@@ -801,7 +807,7 @@ class GaussianFeaturePrompt(Prompt):
         if linear_model:
             self.validation_classifier = nn.Linear(feature_dim, self.valid_out_dim).cuda()
         else:
-            self.validation_classifier = MLP(in_feature=feature_dim, hidden_features=[1024],
+            self.validation_classifier = MLP(in_feature=feature_dim, hidden_features=[1024, 256],
                                              out_feature=self.valid_out_dim).cuda()
 
     def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True, **kwargs):
@@ -845,9 +851,9 @@ class GaussianFeaturePrompt(Prompt):
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
             flatten_possible_task_id = flatten_possible_task_id.squeeze(-1)
 
-            inp = input.unsqueeze(0)
-            input_repeat = inp.repeat(top_k, 1, 1, 1, 1)
-            input_repeat = input_repeat.permute(1, 0, 2, 3, 4)
+            inp = input.unsqueeze(0) # (1, B, C, H, W)
+            input_repeat = inp.repeat(top_k, 1, 1, 1, 1) # (top_k, B, C, H, W)
+            input_repeat = input_repeat.permute(1, 0, 2, 3, 4) # (B, top_k, C, H, W)
             input_repeat = input_repeat.reshape(-1, input_repeat.shape[2], input_repeat.shape[3], input_repeat.shape[4])
 
             last_feature, _ = self.model(input_repeat, get_logit=False, train=False,
@@ -938,7 +944,51 @@ class GaussianFeaturePrompt(Prompt):
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
             return acc, num_correct_task, unique_task
 
-    def learn_validation_classifier(self, max_iter=20, lr=0.01):
+    def _retrieve_validation_set_for_validation_classifier(self, dataloader, model=None):
+        U = list()
+        for class_id in range(self.valid_out_dim):
+            key = self.key_prototype[class_id].unsqueeze(0)
+            U.append(key)
+        U = torch.cat(U, dim=0)  # (num_classes, num_anchors, emb_d)
+
+        list_feature = list()
+        list_label = list()
+        with torch.no_grad():
+            if model is None:
+                model = self.model
+            # This function doesn't distinguish tasks.
+            orig_mode = model.training
+            model.eval()
+            acc = AverageMeter()
+            for i, (input, target, task) in enumerate(dataloader):
+
+                if self.gpu:
+                    with torch.no_grad():
+                        input = input.cuda()
+                        target = target.cuda()
+
+                predicted_task = self.task_id_prediction(model, input, U, top_k=3)
+                feature, _ = model(input, get_logit=False, train=False, use_prompt=True,
+                                   task_id=predicted_task, prompt_type=self.prompt_type)
+
+                list_feature.append(feature)
+                list_label.append(target)
+
+            list_feature = torch.cat(list_feature, dim=0)
+            list_label = torch.cat(list_label, dim=0)
+
+        return list_feature, list_label
+
+    def _evaluate_validation_classifier(self, feature, target, classifier=None):
+        with torch.no_grad():
+            if classifier is None:
+                classifier = self.validation_classifier
+            output = classifier(feature)
+            predicted_class = torch.max(output, dim=1).indices
+            acc = torch.sum(predicted_class == target) / target.shape[0]
+        return acc
+
+    def learn_validation_classifier(self, max_iter=40, lr=0.01, val_loader=None):
         self.create_validation_classifier(linear_model=True)
         MAX_ITER = 10 if max_iter is None else max_iter
         LR = 0.001 if lr is None else lr
@@ -949,6 +999,9 @@ class GaussianFeaturePrompt(Prompt):
         print(f"Finish synthesizing prototype, which prototype shape: {x_syn.shape, y_syn.shape}")
         print("Attempt to learn validation classifier...")
         UPPER_THRESHOLD = 0.25
+
+        eval_feature, eval_target = self._retrieve_validation_set_for_validation_classifier(val_loader)
+
         for iter in range(max_iter):
             loss = 0
             old_loss = 1e9
@@ -980,8 +1033,10 @@ class GaussianFeaturePrompt(Prompt):
                 total_loss.backward()
                 classifier_optimizer.step()
                 loss += total_loss.detach()
-            if iter % 10 == 0:
-                print(f"Learning validation classifier... iteration {iter}, loss function: {loss}")
+            if iter % 1 == 0:
+                acc = self._evaluate_validation_classifier(eval_feature, eval_target)
+                print(f"Learning validation classifier... iteration {iter}, loss function: {loss}, "
+                      f"accuracy on validation set: {acc}")
             if loss - old_loss > UPPER_THRESHOLD:
                 break
             old_loss = loss
