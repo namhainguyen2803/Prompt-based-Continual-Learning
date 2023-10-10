@@ -19,7 +19,6 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 
 
-
 class Prompt(NormalNN):
 
     def __init__(self, learner_config):
@@ -602,9 +601,9 @@ class GaussianFeaturePrompt(Prompt):
             for class_id in class_range:
                 self.mapping_class_to_task[class_id] = task_id
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True):
         self.create_classifier(self.model.task_id)  # create classifier for each task
-        self.create_label_embedding(self.model.task_id)
+        self.create_label_embedding()
         print(f"Create classifier for task id {self.model.task_id}")
         self._update_key_prototype(train_loader)
         # learn prompt
@@ -678,7 +677,6 @@ class GaussianFeaturePrompt(Prompt):
             print(f"Plot feature and centroids: {list_features.shape, list_centroids.shape}")
             plot_tsne(list_features, list_centroids, plot_save_dir + f"/tsne_plot_prompt_all_{label}.png")
 
-
     def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
 
         # try to load model
@@ -689,7 +687,7 @@ class GaussianFeaturePrompt(Prompt):
                 need_train = False
             except:
                 pass
-        # trains
+        # train
         if self.reset_optimizer:  # Reset optimizer before learning each task
             self.log('Optimizer is reset!')
             self.init_optimizer()
@@ -770,8 +768,6 @@ class GaussianFeaturePrompt(Prompt):
         # if self.model.task_id == 0:
         # total_loss = self.criterion(logit, targets.long()) + 0.001 * gaussian_penalty
         total_loss = gaussian_penalty
-        # else:
-        #     kl_div =
 
         # step
         self.optimizer.zero_grad()
@@ -807,25 +803,14 @@ class GaussianFeaturePrompt(Prompt):
         else:
             yield x_train, y_train
 
-    def create_label_embedding(self, task, lr=0.001):
+    def create_label_embedding(self, task):
         task_info = self.tasks[task]
         num_classes = len(task_info)
-
-        if self.model.task_id == 0:  # first task
-            self.label_embedding = nn.Parameter(data=torch.randn(num_classes, self.model.feature_dim, device='cuda'),
-                                                requires_grad=True)
-            self.label_embedding_optim = torch.optim.Adam(lr=lr, params=[self.label_embedding])
-
-        else:
-            new_embed = nn.Parameter(data=torch.randn(self.valid_out_dim, self.model.feature_dim, device='cuda'),
-                                     requires_grad=True)
-
-            for label, distribution in self.distribution.items():
-                mean_dist = distribution.mean
-                new_embed.data[label, :] = mean_dist
-            self.label_embedding = new_embed
-            self.label_embedding_optim = torch.optim.Adam(lr=lr, params=[self.label_embedding])
+        self.label_embedding = nn.Parameter(data=torch.randn(num_classes, self.model.feature_dim, device='cuda'),
+                                            requires_grad=True)
+        self.label_embedding_optim = torch.optim.Adam(lr=0.0005, params=[self.label_embedding])
         print(f"In task: {self.model.task_id}, create label embedding: {self.label_embedding.shape}")
+
     def create_validation_classifier(self, linear_model=True):
         feature_dim = self.model.feature_dim
         if linear_model:
@@ -1107,7 +1092,9 @@ class GaussianFeaturePrompt(Prompt):
 
                 # initialize label_embedding data
                 feature_with_prompt_for_class = last_feature_with_prompt[outputs == class_id]
-                self.label_embedding.data[class_id, :] = \
+                # self.label_embedding.data[class_id, :] = \
+                #     torch.mean(feature_with_prompt_for_class, dim=0)
+                self.label_embedding.data[class_id - self.last_valid_out_dim, :] = \
                     torch.mean(feature_with_prompt_for_class, dim=0)
 
             return prototype_set
