@@ -746,11 +746,11 @@ class GaussianFeaturePrompt(Prompt):
         # pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
         pseudo_mean = self.label_embedding[targets.to(torch.int32), :]
 
-        gaussian_penalty = 0.001 * torch.mean(torch.sum((feature - pseudo_mean) ** 2, dim=1))
+        gaussian_penalty = torch.mean(torch.sum((feature - pseudo_mean) ** 2, dim=1))
 
         # ce with heuristic
         # if self.model.task_id == 0:
-        total_loss = self.criterion(logit, targets.long()) + gaussian_penalty
+        total_loss = gaussian_penalty
         # else:
         #     kl_div =
 
