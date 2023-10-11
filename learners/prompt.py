@@ -666,7 +666,8 @@ class GaussianFeaturePrompt(Prompt):
 
                 dict_data = {
                     "data": chosen_features,
-                    "centroid":mean_data
+                    "centroid":mean_data,
+                    "output_file": plot_save_dir + f"/tsne_plot_prompt_{label}.png"
                 }
                 list_data.append(dict_data)
                 list_centroids.append(mean_data)
@@ -1144,7 +1145,7 @@ def plot_many_tsne(list_data, plotted_file):
     ]
 
     with torch.no_grad():
-        tsne = TSNE(n_components=2, perplexity=500, random_state=42)
+        tsne = TSNE(n_components=2, perplexity=501, random_state=42)
         all_data = list()
         bookmark = list()
         for data_dict in list_data:
@@ -1176,6 +1177,13 @@ def plot_many_tsne(list_data, plotted_file):
 
             plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.5)
             plt.scatter(centroid_class[:, 0], centroid_class[:, 1], marker='*', s=100, c=color)
+
+            plt.title('t-SNE Visualization')
+            plt.xlabel('t-SNE Dimension 1')
+            plt.ylabel('t-SNE Dimension 2')
+            plt.grid(True)
+            plt.legend()
+            plt.savefig(list_data[i]["output_file"])
 
         plt.title('t-SNE Visualization')
         plt.xlabel('t-SNE Dimension 1')
