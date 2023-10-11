@@ -1177,8 +1177,8 @@ def plot_many_tsne(list_data, plotted_file):
             print(f"Class: {i}, data ranging: {b_data}, centroid ranging: {b_centroid}")
 
             plt.figure(figsize=(8, 6))
-            plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.5)
-            plt.scatter(centroid_class[:, 0], centroid_class[:, 1], marker='*', s=100, c=color)
+            plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.2)
+            plt.scatter(centroid_class[:, 0], centroid_class[:, 1], marker='*', s=100, c=color, alpha=0.8)
 
             plt.title('t-SNE Visualization')
             plt.xlabel('t-SNE Dimension 1')
