@@ -1155,7 +1155,7 @@ def plot_many_tsne(list_data, plotted_file):
             if len(bookmark) == 0:
                 bookmark.append([[0, num_data], [num_data, num_data+num_centroid]])
             else:
-                prev_len = bookmark[-1][1]
+                prev_len = bookmark[-1][1][1]
                 bookmark.append([[prev_len, num_data+prev_len], [num_data, num_data+num_centroid]])
 
             all_data.append(data)
