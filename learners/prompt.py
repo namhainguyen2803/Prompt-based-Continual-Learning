@@ -663,7 +663,7 @@ class GaussianFeaturePrompt(Prompt):
 
                 chosen_features = feature[:500, :]
                 mean_data = dist.mean.reshape(1, -1)
-
+                print(chosen_features.shape, mean_data.shape)
                 dict_data = {
                     "data": chosen_features,
                     "centroid":mean_data,
