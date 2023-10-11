@@ -1145,7 +1145,7 @@ def plot_many_tsne(list_data, plotted_file):
     ]
 
     with torch.no_grad():
-        tsne = TSNE(n_components=2, perplexity=501, random_state=42)
+        tsne = TSNE(n_components=2, perplexity=50, random_state=42)
         all_data = list()
         bookmark = list()
         for data_dict in list_data:
