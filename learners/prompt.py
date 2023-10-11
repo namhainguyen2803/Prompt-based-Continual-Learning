@@ -673,7 +673,7 @@ class GaussianFeaturePrompt(Prompt):
                 list_centroids.append(mean_data)
 
             list_centroids = torch.cat(list_centroids, dim=0)
-            centroids_diff = torch.mean(list_centroids.unsqueeze(1) - list_centroids.unsqueeze(0), dim=-1)
+            centroids_diff = torch.mean((list_centroids.unsqueeze(1) - list_centroids.unsqueeze(0))**2, dim=-1)
             print(f"Centroid diff: {centroids_diff}")
             plot_many_tsne(list_data, plot_save_dir + f"/tsne_plot_prompt_all_500.png")
 
