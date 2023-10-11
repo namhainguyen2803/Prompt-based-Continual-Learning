@@ -673,7 +673,7 @@ class GaussianFeaturePrompt(Prompt):
                 list_centroids.append(mean_data)
 
             list_centroids = torch.cat(list_centroids, dim=0)
-            centroids_diff = torch.sum(list_centroids.unsqueeze(1) - list_centroids.unsqueeze(0), dim=-1)
+            centroids_diff = torch.mean(list_centroids.unsqueeze(1) - list_centroids.unsqueeze(0), dim=-1)
             print(f"Centroid diff: {centroids_diff}")
             plot_many_tsne(list_data, plot_save_dir + f"/tsne_plot_prompt_all_500.png")
 
@@ -1187,6 +1187,17 @@ def plot_many_tsne(list_data, plotted_file):
             plt.legend()
             plt.savefig(list_data[i]["output_file"])
             plt.show()
+
+        plt.figure(figsize=(8, 6))
+        for i in range(len(bookmark)):
+            b = bookmark[i]
+            b_data = b[0]
+            b_centroid = b[1]
+            data_class = X_tsne[b_data[0]:b_data[1], :]
+            centroid_class = X_tsne[b_centroid[0]:b_centroid[1], :]
+            color = color_list[i]
+            plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.5)
+            plt.scatter(centroid_class[:, 0], centroid_class[:, 1], marker='*', s=100, c=color)
 
         plt.figure(figsize=(8, 6))
         plt.title('t-SNE Visualization')
