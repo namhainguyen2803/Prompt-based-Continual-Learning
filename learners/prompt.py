@@ -1145,7 +1145,7 @@ def plot_many_tsne(list_data, plotted_file):
     ]
 
     with torch.no_grad():
-        tsne = TSNE(n_components=2, perplexity=50, random_state=42)
+        tsne = TSNE(n_components=2, perplexity=500, random_state=0)
         all_data = list()
         bookmark = list()
         for data_dict in list_data:
@@ -1153,11 +1153,12 @@ def plot_many_tsne(list_data, plotted_file):
             data = data_dict["data"]
             num_data = data.shape[0]
             num_centroid = centroid.shape[0]
+            print(num_data,num_centroid)
             if len(bookmark) == 0:
                 bookmark.append([[0, num_data], [num_data, num_data+num_centroid]])
             else:
                 prev_len = bookmark[-1][1][1]
-                bookmark.append([[prev_len, num_data+prev_len], [num_data, num_data+num_centroid]])
+                bookmark.append([[prev_len, num_data+prev_len], [num_data+prev_len, num_data+prev_len+num_centroid]])
 
             all_data.append(data)
             all_data.append(centroid)
