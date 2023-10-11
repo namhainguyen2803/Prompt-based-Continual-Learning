@@ -1165,7 +1165,6 @@ def plot_many_tsne(list_data, plotted_file):
         data = torch.cat(all_data, dim=0)
         X_tsne = tsne.fit_transform(data)
 
-        plt.figure(figsize=(8, 6))
         for i in range(len(bookmark)):
             b = bookmark[i]
             b_data = b[0]
@@ -1178,13 +1177,16 @@ def plot_many_tsne(list_data, plotted_file):
             plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.5)
             plt.scatter(centroid_class[:, 0], centroid_class[:, 1], marker='*', s=100, c=color)
 
+            plt.figure(figsize=(8, 6))
             plt.title('t-SNE Visualization')
             plt.xlabel('t-SNE Dimension 1')
             plt.ylabel('t-SNE Dimension 2')
             plt.grid(True)
             plt.legend()
             plt.savefig(list_data[i]["output_file"])
+            plt.show()
 
+        plt.figure(figsize=(8, 6))
         plt.title('t-SNE Visualization')
         plt.xlabel('t-SNE Dimension 1')
         plt.ylabel('t-SNE Dimension 2')
