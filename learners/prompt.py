@@ -580,6 +580,9 @@ class GaussianFeaturePrompt(Prompt):
 
         self._create_mapping_from_class_to_task()
 
+        self.list_centroids = list()
+        self.list_data = list()
+
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag='cpp',
@@ -643,8 +646,7 @@ class GaussianFeaturePrompt(Prompt):
             all_y = torch.cat(all_y, dim=0)
 
             unique_Y = torch.unique(all_y)
-            list_centroids = list()
-            list_data = list()
+
             for label in unique_Y:
                 label = label.item()
                 learning_dist_model_params = {
@@ -669,13 +671,13 @@ class GaussianFeaturePrompt(Prompt):
                     "centroid":mean_data,
                     "output_file": plot_save_dir + f"/tsne_plot_prompt_{label}.png"
                 }
-                list_data.append(dict_data)
-                list_centroids.append(mean_data)
+                self.list_data.append(dict_data)
+                self.list_centroids.append(mean_data)
 
-            list_centroids = torch.cat(list_centroids, dim=0)
+            list_centroids = torch.cat(self.list_centroids, dim=0)
             centroids_diff = torch.mean((list_centroids.unsqueeze(1) - list_centroids.unsqueeze(0))**2, dim=-1)
             print(f"Centroid diff: {centroids_diff}")
-            plot_many_tsne(list_data, plot_save_dir + f"/tsne_plot_prompt_all_500.png")
+            plot_many_tsne(self.list_data, plot_save_dir + f"/tsne_plot_prompt_all_500.png")
 
     def _learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=False):
 
