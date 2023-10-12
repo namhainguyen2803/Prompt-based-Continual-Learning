@@ -662,8 +662,7 @@ class GaussianFeaturePrompt(Prompt):
                 dist.learn_distribution(feature)
                 print(f"##### FINISH LEARNING MIXTURE OF GAUSSIAN FOR LABEL: {label} #####")
                 self.distribution[label] = dist
-
-                chosen_features = feature[:500, :]
+                chosen_features = feature[:300, :]
                 mean_data = dist.mean.reshape(1, -1)
                 print(chosen_features.shape, mean_data.shape)
                 dict_data = {
