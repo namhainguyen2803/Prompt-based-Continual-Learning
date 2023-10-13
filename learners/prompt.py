@@ -565,7 +565,6 @@ class GaussianFeaturePrompt(Prompt):
         self.label_embedding_optim = None
         self.label_embedding = None
 
-        self.classifier_dict = dict()
         self.distribution = dict()
 
         self.validation_classifier = None
@@ -592,11 +591,9 @@ class GaussianFeaturePrompt(Prompt):
     def _set_learnable_parameter(self):
 
         if len(self.config['gpuid']) > 1:
-            params_to_opt = list(self.model.module.prompt.parameters()) + \
-                            list(self.classifier_dict[self.model.task_id].parameters())
+            params_to_opt = list(self.model.module.prompt.parameters())
         else:
-            params_to_opt = list(self.model.prompt.parameters()) + \
-                            list(self.classifier_dict[self.model.task_id].parameters())
+            params_to_opt = list(self.model.prompt.parameters())
         return params_to_opt
 
     def _create_mapping_from_class_to_task(self):
