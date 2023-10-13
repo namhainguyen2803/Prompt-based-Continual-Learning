@@ -906,6 +906,7 @@ class GaussianFeaturePrompt(Prompt):
             # This function doesn't distinguish tasks.
             batch_timer = Timer()
             batch_timer.tic()
+            acc = AverageMeter()
             orig_mode = model.training
             model.eval()
 
@@ -935,7 +936,6 @@ class GaussianFeaturePrompt(Prompt):
                         = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in,
                                          **kwargs)
 
-                correct_class += acc
                 total_instance += task.cpu().numel()
                 total_poss_class_correct += poss_class_correct
                 total_poss_task_correct += poss_task_correct
@@ -943,10 +943,10 @@ class GaussianFeaturePrompt(Prompt):
         model.train(orig_mode)
         if verbal:
             self.log(f'In task {unique_task}:')
-            self.log(f' * Val Acc {correct_class / total_instance}, Total time {batch_timer.toc():.2f}')
+            self.log(f' * Val Acc {acc.avg}, Total time {batch_timer.toc():.2f}')
             self.log(f" * Percentage of correct task inside possible tasks: {total_poss_task_correct / total_instance}")
             self.log(f" * Percentage of correct class inside possible classes: {total_poss_class_correct / total_instance}")
-        return correct_class / total_instance
+        return acc.avg
 
     def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
         with torch.no_grad():
@@ -958,9 +958,10 @@ class GaussianFeaturePrompt(Prompt):
             unique_task = torch.unique(task)[0].item()
 
             if task_in is None:
-                acc = torch.sum(target.cpu() == predicted_class.cpu())
+                acc = accumulate_acc(predicted_class, target, task, acc, topk=(self.top_k,))
             else:
-                acc = torch.sum((target - task_in[0]).cpu() == predicted_class.cpu())
+                predicted_class = predicted_class[:, task_in]
+                acc = accumulate_acc(predicted_class, target - task_in[0], task, acc, topk=(self.top_k,))
 
             return acc, unique_task, poss_correct_task, poss_correct_class
 
