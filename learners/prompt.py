@@ -898,21 +898,14 @@ class GaussianFeaturePrompt(Prompt):
             for class_id, distribution in self.distribution.items():
                 score_likelihood[:, class_id] = distribution.log_likelihood(last_feature.cpu()).cpu()
 
-            flatten_possible_class_id = possible_class_id.reshape(-1, 1).squeeze(-1).cpu()
-            selected_score = score_likelihood[
-                torch.arange(start=0, end=B).reshape(-1, 1).repeat(1, top_k).reshape(-1, 1).squeeze(-1).to(torch.int32),
-                flatten_possible_class_id.to(torch.int32)].reshape(B, -1)
-
-            assert selected_score.shape == (B, top_k)
-
-            decision = torch.max(selected_score, dim=1).indices
-
-            res = possible_task_id[range(B), decision]
+            target_decision = torch.argmax(score_likelihood.reshape(B, top_k, self.valid_out_dim), dim=1)
+            assert target_decision.shape == (B, self.valid_out_dim)
+            target_decision = torch.argmax(target_decision, dim=1)
 
             if num_correct_task is None and num_correct_class is None:
-                return res
+                return target_decision
             else:
-                return res, num_correct_task, num_correct_class
+                return target_decision, num_correct_task, num_correct_class
 
     def _validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True, **kwargs):
         with torch.no_grad():
@@ -925,7 +918,7 @@ class GaussianFeaturePrompt(Prompt):
             orig_mode = model.training
             model.eval()
 
-            correct_task = 0
+            correct_class = 0
             total_instance = 0
             total_poss_class_correct = 0
             total_poss_task_correct = 0
@@ -936,7 +929,7 @@ class GaussianFeaturePrompt(Prompt):
                         input = input.cuda()
                         target = target.cuda()
                 if task_in is None:
-                    acc, num_correct_task, unique_task, poss_task_correct, poss_class_correct \
+                    acc, unique_task, poss_task_correct, poss_class_correct \
                         = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None,
                                          **kwargs)
 
@@ -947,11 +940,11 @@ class GaussianFeaturePrompt(Prompt):
                     mask = target < task_in[-1]
                     mask_ind = mask.nonzero().view(-1)
                     input, target = input[mask_ind], target[mask_ind]
-                    acc, num_correct_task, unique_task, poss_task_correct, poss_class_correct \
+                    acc, unique_task, poss_task_correct, poss_class_correct \
                         = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in,
                                          **kwargs)
 
-                correct_task += num_correct_task
+                correct_class += acc
                 total_instance += task.cpu().numel()
                 total_poss_class_correct += poss_class_correct
                 total_poss_task_correct += poss_task_correct
@@ -959,35 +952,27 @@ class GaussianFeaturePrompt(Prompt):
         model.train(orig_mode)
         if verbal:
             self.log(f'In task {unique_task}:')
-            self.log('  * Val Acc {acc.avg:.3f}, Total time {time:.2f}'
-                     .format(acc=acc, time=batch_timer.toc()))
-            self.log(f' * Percentage of correct task: {correct_task / total_instance}')
+            self.log(f' * Val Acc {correct_class / total_instance}, Total time {batch_timer.toc():.2f}')
+            self.log(f' * Percentage of correct task: {correct_class / total_instance}')
             self.log(f" * Percentage of correct task inside possible tasks: {total_poss_task_correct / total_instance}")
-            self.log(f" * Percentage of correct class inside possible tasks: {total_poss_class_correct / total_instance}")
+            self.log(f" * Percentage of correct class inside possible classes: {total_poss_class_correct / total_instance}")
         return acc.avg
 
     def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
         with torch.no_grad():
 
-            predicted_task, poss_correct_task, poss_correct_class \
+            predicted_class, poss_correct_task, poss_correct_class \
                 = self.task_id_prediction(model, input, kwargs["U"], top_k=3,
                                           ground_truth_task_id=task.cpu(), ground_truth_class_id=target.cpu())
 
             unique_task = torch.unique(task)[0].item()
 
-            num_correct_task = torch.sum(predicted_task.cpu() == task.cpu())
-
             if task_in is None:
-                feature, _ = model(input, get_logit=False, train=False, use_prompt=True,
-                                   task_id=predicted_task, prompt_type=self.prompt_type)
-                output = self.validation_classifier(feature)
-                acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
+                acc = torch.sum(target == predicted_class)
             else:
-                feature, _ = model(input, get_logit=True, train=False, use_prompt=True,
-                                   task_id=predicted_task, prompt_type=self.prompt_type)
-                output = self.validation_classifier(feature)
-                acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
-            return acc, num_correct_task, unique_task, poss_correct_task, poss_correct_class
+                acc = torch.sum((target - task_in[0]) == predicted_class)
+
+            return acc, unique_task, poss_correct_task, poss_correct_class
 
     def _retrieve_validation_set_for_validation_classifier(self, dataloader, model=None):
         U = list()
