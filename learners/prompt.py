@@ -667,14 +667,14 @@ class GaussianFeaturePrompt(Prompt):
                 print(chosen_features.shape, mean_data.shape)
                 dict_data = {
                     "data": chosen_features,
-                    "centroid":mean_data,
+                    "centroid": mean_data,
                     "output_file": plot_save_dir + f"/tsne_plot_prompt_{label}.png"
                 }
                 self.list_data.append(dict_data)
                 self.list_centroids.append(mean_data)
 
             list_centroids = torch.cat(self.list_centroids, dim=0)
-            centroids_diff = torch.mean((list_centroids.unsqueeze(1) - list_centroids.unsqueeze(0))**2, dim=-1)
+            centroids_diff = torch.mean((list_centroids.unsqueeze(1) - list_centroids.unsqueeze(0)) ** 2, dim=-1)
             print(f"Centroid diff: {centroids_diff}")
             plot_many_tsne(self.list_data, plot_save_dir + f"/tsne_plot_prompt_all_500.png")
 
@@ -840,7 +840,7 @@ class GaussianFeaturePrompt(Prompt):
         kwargs["U"] = U
         return self._validation(dataloader, model, task_in, task_metric, verbal, **kwargs)
 
-    def task_id_prediction(self, model, input, U, top_k=1):
+    def task_id_prediction(self, model, input, U, top_k=1, ground_truth_task_id=None, ground_truth_class_id=None):
         if model is None:
             model = self.model
 
@@ -864,17 +864,24 @@ class GaussianFeaturePrompt(Prompt):
                 possible_task_id[ranking == c] = self.mapping_class_to_task[class_id]
                 possible_class_id[ranking == c] = class_id
 
+        num_correct_task = None
+        num_correct_class = None
+        if ground_truth_task_id is not None:
+            num_correct_task = check_in_list(possible_task_id, ground_truth_task_id)
+        if ground_truth_class_id is not None:
+            num_correct_class = check_in_list(possible_class_id, ground_truth_class_id)
+
         if top_k == 1:
-            return possible_task_id.squeeze(-1)
+            return possible_task_id.squeeze(-1), num_correct_task, num_correct_class
 
         else:
 
             flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
             flatten_possible_task_id = flatten_possible_task_id.squeeze(-1)
 
-            inp = input.unsqueeze(0) # (1, B, C, H, W)
-            input_repeat = inp.repeat(top_k, 1, 1, 1, 1) # (top_k, B, C, H, W)
-            input_repeat = input_repeat.permute(1, 0, 2, 3, 4) # (B, top_k, C, H, W)
+            inp = input.unsqueeze(0)  # (1, B, C, H, W)
+            input_repeat = inp.repeat(top_k, 1, 1, 1, 1)  # (top_k, B, C, H, W)
+            input_repeat = input_repeat.permute(1, 0, 2, 3, 4)  # (B, top_k, C, H, W)
             input_repeat = input_repeat.reshape(-1, input_repeat.shape[2], input_repeat.shape[3], input_repeat.shape[4])
 
             last_feature, _ = self.model(input_repeat, get_logit=False, train=False,
@@ -899,7 +906,7 @@ class GaussianFeaturePrompt(Prompt):
 
             res = possible_task_id[range(B), decision]
 
-            return res
+            return res, num_correct_task, num_correct_class
 
     def _validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True, **kwargs):
         with torch.no_grad():
@@ -914,6 +921,8 @@ class GaussianFeaturePrompt(Prompt):
 
             correct_task = 0
             total_instance = 0
+            total_poss_class_correct = 0
+            total_poss_task_correct = 0
             for i, (input, target, task) in enumerate(dataloader):
 
                 if self.gpu:
@@ -921,7 +930,7 @@ class GaussianFeaturePrompt(Prompt):
                         input = input.cuda()
                         target = target.cuda()
                 if task_in is None:
-                    acc, num_correct_task, unique_task \
+                    acc, num_correct_task, unique_task, poss_task_correct, poss_class_correct \
                         = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None,
                                          **kwargs)
 
@@ -932,12 +941,14 @@ class GaussianFeaturePrompt(Prompt):
                     mask = target < task_in[-1]
                     mask_ind = mask.nonzero().view(-1)
                     input, target = input[mask_ind], target[mask_ind]
-                    acc, num_correct_task, unique_task \
+                    acc, num_correct_task, unique_task, poss_task_correct, poss_class_correct \
                         = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in,
                                          **kwargs)
 
                 correct_task += num_correct_task
                 total_instance += task.cpu().numel()
+                total_poss_class_correct += poss_class_correct
+                total_poss_task_correct += poss_task_correct
 
         model.train(orig_mode)
         if verbal:
@@ -945,14 +956,21 @@ class GaussianFeaturePrompt(Prompt):
             self.log('  * Val Acc {acc.avg:.3f}, Total time {time:.2f}'
                      .format(acc=acc, time=batch_timer.toc()))
             self.log(f' * Percentage of correct task: {correct_task / total_instance}')
+            self.log(f" * Percentage of correct task inside possible tasks: {total_poss_task_correct / total_instance}")
+            self.log(f" * Percentage of correct class inside possible tasks: {total_poss_class_correct / total_instance}")
         return acc.avg
 
     def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
         with torch.no_grad():
-            predicted_task = self.task_id_prediction(model, input, kwargs["U"], top_k=3)
+
+            predicted_task, num_correct_task, num_correct_class \
+                = self.task_id_prediction(model, input, kwargs["U"], top_k=3,
+                                          ground_truth_task_id=task.cpu(), ground_truth_class_id=target.cpu())
+
             unique_task = torch.unique(task)[0].item()
+
             num_correct_task = torch.sum(predicted_task.cpu() == task.cpu())
-            # print(f"In task: {unique_task}, percentage of correct task: {torch.sum(predicted_task.cpu() == task.cpu()) / task.cpu().numel()}")
+
             if task_in is None:
                 feature, _ = model(input, get_logit=False, train=False, use_prompt=True,
                                    task_id=predicted_task, prompt_type=self.prompt_type)
@@ -963,7 +981,7 @@ class GaussianFeaturePrompt(Prompt):
                                    task_id=predicted_task, prompt_type=self.prompt_type)
                 output = self.validation_classifier(feature)
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
-            return acc, num_correct_task, unique_task
+            return acc, num_correct_task, unique_task, num_correct_task, num_correct_class
 
     def _retrieve_validation_set_for_validation_classifier(self, dataloader, model=None):
         U = list()
@@ -1154,12 +1172,13 @@ def plot_many_tsne(list_data, plotted_file):
             data = data_dict["data"]
             num_data = data.shape[0]
             num_centroid = centroid.shape[0]
-            print(num_data,num_centroid)
+            print(num_data, num_centroid)
             if len(bookmark) == 0:
-                bookmark.append([[0, num_data], [num_data, num_data+num_centroid]])
+                bookmark.append([[0, num_data], [num_data, num_data + num_centroid]])
             else:
                 prev_len = bookmark[-1][1][1]
-                bookmark.append([[prev_len, num_data+prev_len], [num_data+prev_len, num_data+prev_len+num_centroid]])
+                bookmark.append(
+                    [[prev_len, num_data + prev_len], [num_data + prev_len, num_data + prev_len + num_centroid]])
 
             all_data.append(data)
             all_data.append(centroid)
@@ -1209,6 +1228,7 @@ def plot_many_tsne(list_data, plotted_file):
         plt.savefig(plotted_file)
         plt.show()
 
+
 def plot_tsne(data, centroids=None, output_filename=None):
     with torch.no_grad():
         tsne = TSNE(n_components=2, perplexity=30, random_state=42)
@@ -1237,7 +1257,21 @@ def plot_tsne(data, centroids=None, output_filename=None):
         plt.savefig(output_filename)
         plt.show()
 
+
 def check_tensor_nan(tensor, tensor_name="a"):
     has_nan = torch.isnan(tensor).any().item()
     if has_nan:
         raise f"Tensor {tensor_name} is nan."
+
+
+def check_in_list(possible_arr, ground_truth):
+    assert possible_arr.ndim == 2
+    assert ground_truth.ndim == 1
+    diff = possible_arr - ground_truth.unsqueeze(1)
+    same = torch.zeros_like(diff)
+    same[diff == 0] = 1
+    same[diff != 0] = 0
+    same = torch.sum(same, dim=1)
+    same[same > 1] = 1
+    num_element_correct = torch.sum(same)
+    return num_element_correct
