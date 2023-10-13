@@ -867,9 +867,9 @@ class GaussianFeaturePrompt(Prompt):
         num_correct_task = None
         num_correct_class = None
         if ground_truth_task_id is not None:
-            num_correct_task = check_in_list(possible_task_id, ground_truth_task_id)
+            num_correct_task = check_in_list(possible_task_id.cpu(), ground_truth_task_id.cpu())
         if ground_truth_class_id is not None:
-            num_correct_class = check_in_list(possible_class_id, ground_truth_class_id)
+            num_correct_class = check_in_list(possible_class_id.cpu(), ground_truth_class_id.cpu())
 
         if top_k == 1:
             if num_correct_task is None and num_correct_class is None:
@@ -908,7 +908,7 @@ class GaussianFeaturePrompt(Prompt):
             decision = torch.max(selected_score, dim=1).indices
 
             res = possible_task_id[range(B), decision]
-            
+
             if num_correct_task is None and num_correct_class is None:
                 return res
             else:
