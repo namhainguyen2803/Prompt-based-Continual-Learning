@@ -889,7 +889,7 @@ class GaussianFeaturePrompt(Prompt):
 
             target_decision = torch.max(score_likelihood.reshape(B, top_k, self.valid_out_dim), dim=1).values
             assert target_decision.shape == (B, self.valid_out_dim)
-            target_decision = torch.argmax(target_decision, dim=1)
+            # target_decision = torch.argmax(target_decision, dim=1)
 
             if num_correct_task is None and num_correct_class is None:
                 return target_decision
