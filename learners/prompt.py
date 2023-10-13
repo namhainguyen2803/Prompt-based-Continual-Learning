@@ -618,9 +618,6 @@ class GaussianFeaturePrompt(Prompt):
         print(f"Start learning Gaussian distribution for each class of task id: {self.model.task_id}")
         self.get_distribution(train_loader=train_loader)
         print(f"Finish learning Gaussian distribution for each class of task id: {self.model.task_id}")
-        print(f"##### Attempt to learn validation classifier in task id: {self.model.task_id}. #####")
-        self.learn_validation_classifier(val_loader=val_loader)
-        print(f"##### Finish learning validation classifier in task id: {self.model.task_id}. #####")
 
     def get_distribution(self, train_loader):
         """
