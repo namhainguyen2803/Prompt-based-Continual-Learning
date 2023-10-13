@@ -887,7 +887,7 @@ class GaussianFeaturePrompt(Prompt):
             for class_id, distribution in self.distribution.items():
                 score_likelihood[:, class_id] = distribution.log_likelihood(last_feature.cpu()).cpu()
 
-            flatten_possible_class_id = possible_class_id.reshape(-1, 1).squeeze(-1) # [top_k1, top_k2, ..., top_kB]
+            flatten_possible_class_id = possible_class_id.reshape(-1, 1).squeeze(-1).cpu() # [top_k1, top_k2, ..., top_kB]
 
             selected_score = score_likelihood[
                 range(B * top_k),
