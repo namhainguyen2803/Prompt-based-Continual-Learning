@@ -969,7 +969,7 @@ class GaussianFeaturePrompt(Prompt):
     def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
         with torch.no_grad():
 
-            predicted_task, num_correct_task, num_correct_class \
+            predicted_task, poss_correct_task, poss_correct_class \
                 = self.task_id_prediction(model, input, kwargs["U"], top_k=3,
                                           ground_truth_task_id=task.cpu(), ground_truth_class_id=target.cpu())
 
@@ -987,7 +987,7 @@ class GaussianFeaturePrompt(Prompt):
                                    task_id=predicted_task, prompt_type=self.prompt_type)
                 output = self.validation_classifier(feature)
                 acc = accumulate_acc(output, target - task_in[0], task, acc, topk=(self.top_k,))
-            return acc, num_correct_task, unique_task, num_correct_task, num_correct_class
+            return acc, num_correct_task, unique_task, poss_correct_task, poss_correct_class
 
     def _retrieve_validation_set_for_validation_classifier(self, dataloader, model=None):
         U = list()
