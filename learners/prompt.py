@@ -872,7 +872,10 @@ class GaussianFeaturePrompt(Prompt):
             num_correct_class = check_in_list(possible_class_id, ground_truth_class_id)
 
         if top_k == 1:
-            return possible_task_id.squeeze(-1), num_correct_task, num_correct_class
+            if num_correct_task is None and num_correct_class is None:
+                return possible_task_id.squeeze(-1)
+            else:
+                return possible_task_id.squeeze(-1), num_correct_task, num_correct_class
 
         else:
 
@@ -905,8 +908,11 @@ class GaussianFeaturePrompt(Prompt):
             decision = torch.max(selected_score, dim=1).indices
 
             res = possible_task_id[range(B), decision]
-
-            return res, num_correct_task, num_correct_class
+            
+            if num_correct_task is None and num_correct_class is None:
+                return res
+            else:
+                return res, num_correct_task, num_correct_class
 
     def _validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True, **kwargs):
         with torch.no_grad():
