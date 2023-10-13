@@ -605,7 +605,6 @@ class GaussianFeaturePrompt(Prompt):
                 self.mapping_class_to_task[class_id] = task_id
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True):
-        self.create_classifier(self.model.task_id)  # create classifier for each task
         self.create_label_embedding(self.model.task_id)
         print(f"Create classifier for task id {self.model.task_id}")
         self._update_key_prototype(train_loader)
@@ -694,7 +693,6 @@ class GaussianFeaturePrompt(Prompt):
         if need_train:
             # data weighting
             losses = AverageMeter()
-            acc = AverageMeter()
             batch_time = AverageMeter()
             batch_timer = Timer()
             for epoch in range(self.config['schedule'][-1]):
@@ -720,7 +718,7 @@ class GaussianFeaturePrompt(Prompt):
                         y = y.cuda()
 
                     # model update
-                    loss, gaussian_loss, output = self.update_model(x, y)
+                    loss, gaussian_loss = self.update_model(x, y)
 
                     # measure elapsed time
                     batch_time.update(batch_timer.toc())
@@ -728,7 +726,6 @@ class GaussianFeaturePrompt(Prompt):
 
                     # measure accuracy and record loss
                     y = y.detach()
-                    accumulate_acc(output, y, task, acc, topk=(self.top_k,))
                     losses.update(loss, y.size(0))
                     batch_timer.tic()
 
@@ -737,8 +734,8 @@ class GaussianFeaturePrompt(Prompt):
                 # eval update
                 self.log(
                     'Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=self.epoch + 1, total=self.config['schedule'][-1]))
-                self.log(' * Loss {loss.avg:.3f} Gaussian Loss {gauss_loss: .3f} | Train Acc {acc.avg:.3f}'
-                         .format(loss=losses, gauss_loss=total_gaussian_loss / num_training, acc=acc))
+                self.log(' * Loss {loss.avg:.3f} Gaussian Loss {gauss_loss: .3f}'
+                         .format(loss=losses, gauss_loss=total_gaussian_loss / num_training))
 
                 # reset
                 losses = AverageMeter()
@@ -764,8 +761,6 @@ class GaussianFeaturePrompt(Prompt):
         feature, _ = self.model(x=inputs, get_logit=False, train=True,
                                 use_prompt=True, task_id=None, prompt_type=self.prompt_type)
 
-        logit = self.classifier_dict[self.model.task_id](feature)
-
         # pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
         pseudo_mean = self.label_embedding[targets.to(torch.int32), :]
 
@@ -785,7 +780,7 @@ class GaussianFeaturePrompt(Prompt):
         self.optimizer.step()
         # self.label_embedding_optim.step()
 
-        return total_loss.detach(), gaussian_penalty.detach(), logit
+        return total_loss.detach(), gaussian_penalty.detach()
 
     def _generate_synthesis_prototype(self, num_sample=256):
         x_synthesis = list()
@@ -910,7 +905,6 @@ class GaussianFeaturePrompt(Prompt):
                 model = self.model
             # This function doesn't distinguish tasks.
             batch_timer = Timer()
-            acc = AverageMeter()
             batch_timer.tic()
             orig_mode = model.training
             model.eval()
@@ -950,10 +944,9 @@ class GaussianFeaturePrompt(Prompt):
         if verbal:
             self.log(f'In task {unique_task}:')
             self.log(f' * Val Acc {correct_class / total_instance}, Total time {batch_timer.toc():.2f}')
-            self.log(f' * Percentage of correct task: {correct_class / total_instance}')
             self.log(f" * Percentage of correct task inside possible tasks: {total_poss_task_correct / total_instance}")
             self.log(f" * Percentage of correct class inside possible classes: {total_poss_class_correct / total_instance}")
-        return acc.avg
+        return correct_class / total_instance
 
     def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
         with torch.no_grad():
@@ -970,103 +963,6 @@ class GaussianFeaturePrompt(Prompt):
                 acc = torch.sum((target - task_in[0]).cpu() == predicted_class.cpu())
 
             return acc, unique_task, poss_correct_task, poss_correct_class
-
-    def _retrieve_validation_set_for_validation_classifier(self, dataloader, model=None):
-        U = list()
-        for class_id in range(self.valid_out_dim):
-            key = self.key_prototype[class_id].unsqueeze(0)
-            U.append(key)
-        U = torch.cat(U, dim=0)  # (num_classes, num_anchors, emb_d)
-
-        list_feature = list()
-        list_label = list()
-        with torch.no_grad():
-            if model is None:
-                model = self.model
-            # This function doesn't distinguish tasks.
-            orig_mode = model.training
-            model.eval()
-            acc = AverageMeter()
-            for i, (input, target, task) in enumerate(dataloader):
-
-                if self.gpu:
-                    with torch.no_grad():
-                        input = input.cuda()
-                        target = target.cuda()
-
-                predicted_task = self.task_id_prediction(model, input, U, top_k=3)
-                feature, _ = model(input, get_logit=False, train=False, use_prompt=True,
-                                   task_id=predicted_task, prompt_type=self.prompt_type)
-
-                list_feature.append(feature)
-                list_label.append(target)
-
-            list_feature = torch.cat(list_feature, dim=0)
-            list_label = torch.cat(list_label, dim=0)
-
-        return list_feature, list_label
-
-    def _evaluate_validation_classifier(self, feature, target, classifier=None):
-        with torch.no_grad():
-            if classifier is None:
-                classifier = self.validation_classifier
-            output = classifier(feature)
-            predicted_class = torch.max(output, dim=1).indices
-            acc = torch.sum(predicted_class == target) / target.shape[0]
-        return acc
-
-    def learn_validation_classifier(self, max_iter=40, lr=0.01, val_loader=None):
-        self.create_validation_classifier(linear_model=True)
-        MAX_ITER = 10 if max_iter is None else max_iter
-        LR = 0.001 if lr is None else lr
-        classifier_optimizer = torch.optim.Adam(params=self.validation_classifier.parameters(), lr=LR)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=classifier_optimizer, T_max=MAX_ITER)
-        print("Start synthesize prototype")
-        x_syn, y_syn = self._generate_synthesis_prototype()
-        print(f"Finish synthesizing prototype, which prototype shape: {x_syn.shape, y_syn.shape}")
-        print("Attempt to learn validation classifier...")
-        UPPER_THRESHOLD = 0.25
-
-        eval_feature, eval_target = self._retrieve_validation_set_for_validation_classifier(val_loader)
-
-        for iter in range(max_iter):
-            loss = 0
-            old_loss = 1e9
-            if iter > 0:
-                scheduler.step()
-            data_loader = self.data_generator(x_syn, y_syn, randomize=True)
-            for (x, y) in data_loader:
-                if self.gpu:
-                    x = x.cuda()
-                    y = y.cuda()
-                out = self.validation_classifier(x)
-
-                #############################################################
-                if self.logit_normalize:
-                    copied_out = out.detach().clone()
-                    num_task_so_far = self.task_count
-                    num_class_per_task = self.valid_out_dim // num_task_so_far
-                    copied_out = copied_out.reshape(out.shape[0], num_task_so_far, num_class_per_task)
-                    per_task_norm = torch.norm(copied_out, p=2, dim=-1) + 1e-7
-                    assert per_task_norm.shape == (out.shape[0], num_task_so_far), \
-                        "per_task_norm.shape != (out.shape[0], num_task_so_far)."
-                    norms = per_task_norm.mean(dim=-1, keepdim=True)
-                    assert norms.shape == (out.shape[0], 1), "norms.shape != (out.shape[0], 1)."
-                    out = torch.div(out, norms) / self.logit_norm
-                #############################################################
-
-                total_loss = self.criterion(out, y.long())
-                classifier_optimizer.zero_grad()
-                total_loss.backward()
-                classifier_optimizer.step()
-                loss += total_loss.detach()
-            if iter % 1 == 0:
-                acc = self._evaluate_validation_classifier(eval_feature, eval_target)
-                print(f"Learning validation classifier... iteration {iter}, loss function: {loss}, "
-                      f"accuracy on validation set: {acc}")
-            if loss - old_loss > UPPER_THRESHOLD:
-                break
-            old_loss = loss
 
     def _update_prototype_set(self, prototype_set, train_loader):
         with torch.no_grad():
@@ -1117,12 +1013,6 @@ class GaussianFeaturePrompt(Prompt):
 
     def _update_key_prototype(self, train_loader):
         self.key_prototype = self._update_prototype_set(prototype_set=self.key_prototype, train_loader=train_loader)
-
-    def create_classifier(self, task_id):
-        feature_dim = self.model.prompt.emb_d
-        num_classes = len(self.tasks[task_id])
-        model = nn.Linear(in_features=feature_dim, out_features=num_classes).cuda()
-        self.classifier_dict[task_id] = model
 
 
 def plot_many_tsne(list_data, plotted_file):
@@ -1214,35 +1104,6 @@ def plot_many_tsne(list_data, plotted_file):
         plt.grid(True)
         plt.legend()
         plt.savefig(plotted_file)
-        plt.show()
-
-
-def plot_tsne(data, centroids=None, output_filename=None):
-    with torch.no_grad():
-        tsne = TSNE(n_components=2, perplexity=30, random_state=42)
-        if centroids is not None:
-            num_data = data.shape[0]
-            data = torch.cat((data, centroids), dim=0)
-            X_tsne = tsne.fit_transform(data)
-
-            tsne_data = X_tsne[:num_data]
-            tsne_centroids = X_tsne[num_data:]
-
-            plt.figure(figsize=(8, 6))
-            plt.scatter(tsne_data[:, 0], tsne_data[:, 1], marker='o', s=20, alpha=0.5, label='Datapoints')
-            plt.scatter(tsne_centroids[:, 0], tsne_centroids[:, 1], marker='*', s=100, c='red', label='Centroids')
-
-        else:
-            X_tsne = tsne.fit_transform(data)
-            plt.figure(figsize=(8, 6))
-            plt.scatter(X_tsne[:, 0], X_tsne[:, 1], marker='o', s=20, alpha=0.5, label='Datapoints')
-
-        plt.title('t-SNE Visualization')
-        plt.xlabel('t-SNE Dimension 1')
-        plt.ylabel('t-SNE Dimension 2')
-        plt.grid(True)
-        plt.legend()
-        plt.savefig(output_filename)
         plt.show()
 
 
