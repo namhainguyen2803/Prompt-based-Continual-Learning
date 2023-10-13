@@ -929,7 +929,7 @@ class GaussianFeaturePrompt(Prompt):
                         input = input.cuda()
                         target = target.cuda()
                 acc, unique_task, poss_task_correct, poss_class_correct \
-                    = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None,
+                    = self._evaluate(model=model, input=input, target=target, task=task, task_in=None,
                                      **kwargs)
 
                 correct_class += acc
@@ -945,7 +945,7 @@ class GaussianFeaturePrompt(Prompt):
             self.log(f" * Percentage of correct class inside possible classes: {total_poss_class_correct / total_instance}")
         return correct_class / total_instance
 
-    def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
+    def _evaluate(self, model, input, target, task, task_in=None, **kwargs):
         with torch.no_grad():
 
             predicted_class, poss_correct_task, poss_correct_class \
