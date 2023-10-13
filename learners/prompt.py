@@ -953,7 +953,7 @@ class GaussianFeaturePrompt(Prompt):
                                           ground_truth_task_id=task.cpu(), ground_truth_class_id=target.cpu())
 
             unique_task = torch.unique(task)[0].item()
-            acc = torch.sum(predicted_class.cuda() == target.cuda())
+            acc = torch.sum(predicted_class.cpu() == target.cpu())
             return acc, unique_task, poss_correct_task, poss_correct_class
 
     def _update_prototype_set(self, prototype_set, train_loader):
