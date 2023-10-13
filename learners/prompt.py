@@ -958,9 +958,9 @@ class GaussianFeaturePrompt(Prompt):
             unique_task = torch.unique(task)[0].item()
 
             if task_in is None:
-                acc = accumulate_acc(predicted_class, target, task, acc, topk=(self.top_k,))
+                acc = accumulate_acc(predicted_class.cuda(), target, task, acc, topk=(self.top_k,))
             else:
-                predicted_class = predicted_class[:, task_in]
+                predicted_class = predicted_class[:, task_in].cuda()
                 acc = accumulate_acc(predicted_class, target - task_in[0], task, acc, topk=(self.top_k,))
 
             return acc, unique_task, poss_correct_task, poss_correct_class
