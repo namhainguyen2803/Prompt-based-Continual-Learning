@@ -820,14 +820,14 @@ class GaussianFeaturePrompt(Prompt):
             self.validation_classifier = MLP(in_feature=feature_dim, hidden_features=[1024, 256],
                                              out_feature=self.valid_out_dim).cuda()
 
-    def validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True, **kwargs):
+    def validation(self, dataloader, model=None, task_metric='acc', verbal=True, **kwargs):
         U = list()
         for class_id in range(self.valid_out_dim):
             key = self.key_prototype[class_id].unsqueeze(0)
             U.append(key)
         U = torch.cat(U, dim=0)  # (num_classes, num_anchors, emb_d)
         kwargs["U"] = U
-        return self._validation(dataloader, model, task_in, task_metric, verbal, **kwargs)
+        return self._validation(dataloader, model, task_metric, verbal, **kwargs)
 
     def task_id_prediction(self, model, input, U, top_k=1, ground_truth_task_id=None, ground_truth_class_id=None):
         if model is None:
@@ -887,8 +887,19 @@ class GaussianFeaturePrompt(Prompt):
             for class_id, distribution in self.distribution.items():
                 score_likelihood[:, class_id] = distribution.log_likelihood(last_feature.cpu()).cpu()
 
-            target_decision = torch.max(score_likelihood.reshape(B, top_k, self.valid_out_dim), dim=1).values
-            assert target_decision.shape == (B, self.valid_out_dim)
+            flatten_possible_class_id = possible_class_id.reshape(-1, 1).squeeze(-1) # [top_k1, top_k2, ..., top_kB]
+
+            selected_score = score_likelihood[
+                torch.arange(start=0, end=B).reshape(-1, 1).repeat(1, top_k).reshape(-1, 1).squeeze(-1).to(torch.int32),
+                flatten_possible_class_id.to(torch.int32)].reshape(B, -1) # (B, top_k)
+
+            assert selected_score.shape == (B, top_k)
+
+            target_decision_indices = torch.argmax(selected_score, dim=1)
+
+            target_decision = possible_class_id[range(B), target_decision_indices]
+
+            # assert target_decision.shape == (B, self.valid_out_dim)
             # target_decision = torch.argmax(target_decision, dim=1)
 
             if num_correct_task is None and num_correct_class is None:
@@ -896,14 +907,13 @@ class GaussianFeaturePrompt(Prompt):
             else:
                 return target_decision, num_correct_task, num_correct_class
 
-    def _validation(self, dataloader, model=None, task_in=None, task_metric='acc', verbal=True, **kwargs):
+    def _validation(self, dataloader, model=None, task_metric='acc', verbal=True, **kwargs):
         with torch.no_grad():
             if model is None:
                 model = self.model
             # This function doesn't distinguish tasks.
             batch_timer = Timer()
             batch_timer.tic()
-            acc = AverageMeter()
             orig_mode = model.training
             model.eval()
 
@@ -917,22 +927,11 @@ class GaussianFeaturePrompt(Prompt):
                     with torch.no_grad():
                         input = input.cuda()
                         target = target.cuda()
-                if task_in is None:
-                    acc, unique_task, poss_task_correct, poss_class_correct \
-                        = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None,
-                                         **kwargs)
+                acc, unique_task, poss_task_correct, poss_class_correct \
+                    = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=None,
+                                     **kwargs)
 
-                else:
-                    mask = target >= task_in[0]
-                    mask_ind = mask.nonzero().view(-1)
-                    input, target = input[mask_ind], target[mask_ind]
-                    mask = target < task_in[-1]
-                    mask_ind = mask.nonzero().view(-1)
-                    input, target = input[mask_ind], target[mask_ind]
-                    acc, unique_task, poss_task_correct, poss_class_correct \
-                        = self._evaluate(model=model, input=input, target=target, task=task, acc=acc, task_in=task_in,
-                                         **kwargs)
-
+                correct_class += acc
                 total_instance += task.cpu().numel()
                 total_poss_class_correct += poss_class_correct
                 total_poss_task_correct += poss_task_correct
@@ -940,10 +939,10 @@ class GaussianFeaturePrompt(Prompt):
         model.train(orig_mode)
         if verbal:
             self.log(f'In task {unique_task}:')
-            self.log(f' * Val Acc {acc.avg}, Total time {batch_timer.toc():.2f}')
+            self.log(f' * Val Acc {correct_class / total_instance}, Total time {batch_timer.toc():.2f}')
             self.log(f" * Percentage of correct task inside possible tasks: {total_poss_task_correct / total_instance}")
             self.log(f" * Percentage of correct class inside possible classes: {total_poss_class_correct / total_instance}")
-        return acc.avg
+        return correct_class / total_instance
 
     def _evaluate(self, model, input, target, task, acc, task_in=None, **kwargs):
         with torch.no_grad():
@@ -953,13 +952,7 @@ class GaussianFeaturePrompt(Prompt):
                                           ground_truth_task_id=task.cpu(), ground_truth_class_id=target.cpu())
 
             unique_task = torch.unique(task)[0].item()
-
-            if task_in is None:
-                acc = accumulate_acc(predicted_class.cuda(), target, task, acc, topk=(self.top_k,))
-            else:
-                predicted_class = predicted_class[:, task_in].cuda()
-                acc = accumulate_acc(predicted_class, target - task_in[0], task, acc, topk=(self.top_k,))
-
+            acc = torch.sum(predicted_class.cuda() == target.cuda())
             return acc, unique_task, poss_correct_task, poss_correct_class
 
     def _update_prototype_set(self, prototype_set, train_loader):

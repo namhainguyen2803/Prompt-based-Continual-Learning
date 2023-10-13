@@ -139,7 +139,7 @@ class Trainer:
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
 
-    def task_eval(self, t_index, local=False, task='acc'):
+    def task_eval(self, t_index, task='acc'):
 
         val_name = self.task_names[t_index]
         print('validation split name:', val_name)
@@ -148,10 +148,8 @@ class Trainer:
         self.test_dataset.load_dataset(t_index, train=True)
         test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False,
                                  num_workers=self.workers)
-        if local:
-            return self.learner.validation(test_loader, task_in=self.tasks_logits[t_index], task_metric=task)
-        else:
-            return self.learner.validation(test_loader, task_metric=task)
+
+        return self.learner.validation(test_loader, task_metric=task)
 
     def train(self, avg_metrics):
 
@@ -319,9 +317,6 @@ class Trainer:
             for j in range(i + 1):
                 val_name = self.task_names[j]
                 metric_table['acc'][val_name][self.task_names[i]] = self.task_eval(j)
-            for j in range(i + 1):
-                val_name = self.task_names[j]
-                metric_table_local['acc'][val_name][self.task_names[i]] = self.task_eval(j, local=True)
 
         # summarize metrics
         avg_metrics['acc'] = self.summarize_acc(avg_metrics['acc'], metric_table['acc'], metric_table_local['acc'])
