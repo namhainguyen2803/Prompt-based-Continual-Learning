@@ -900,8 +900,10 @@ class GaussianFeaturePrompt(Prompt):
 
             flatten_possible_class_id = possible_class_id.reshape(-1, 1).squeeze(-1).cpu()
             selected_score = score_likelihood[
-                torch.arange(start=0, end=B).reshape(-1, 1).repeat(1, top_k).reshape(-1, 1).squeeze(-1).to(torch.int32),
-                flatten_possible_class_id.to(torch.int32)].reshape(B, -1)
+                # torch.arange(start=0, end=B).reshape(-1, 1).repeat(1, top_k).reshape(-1, 1).squeeze(-1).to(torch.int32),
+                range(B * top_k),
+                flatten_possible_class_id.to(torch.int32)
+            ].reshape(B, -1)
 
             assert selected_score.shape == (B, top_k)
 
