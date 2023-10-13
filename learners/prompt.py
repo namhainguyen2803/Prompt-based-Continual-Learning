@@ -895,7 +895,7 @@ class GaussianFeaturePrompt(Prompt):
             for class_id, distribution in self.distribution.items():
                 score_likelihood[:, class_id] = distribution.log_likelihood(last_feature.cpu()).cpu()
 
-            target_decision = torch.argmax(score_likelihood.reshape(B, top_k, self.valid_out_dim), dim=1)
+            target_decision = torch.max(score_likelihood.reshape(B, top_k, self.valid_out_dim), dim=1).values
             assert target_decision.shape == (B, self.valid_out_dim)
             target_decision = torch.argmax(target_decision, dim=1)
 
@@ -965,9 +965,9 @@ class GaussianFeaturePrompt(Prompt):
             unique_task = torch.unique(task)[0].item()
 
             if task_in is None:
-                acc = torch.sum(target == predicted_class)
+                acc = torch.sum(target.cpu() == predicted_class.cpu())
             else:
-                acc = torch.sum((target - task_in[0]) == predicted_class)
+                acc = torch.sum((target - task_in[0]).cpu() == predicted_class.cpu())
 
             return acc, unique_task, poss_correct_task, poss_correct_class
 
