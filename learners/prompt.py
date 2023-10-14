@@ -885,7 +885,8 @@ class GaussianFeaturePrompt(Prompt):
             score_likelihood = torch.zeros(B * top_k, self.valid_out_dim)
 
             for class_id, distribution in self.distribution.items():
-                score_likelihood[:, class_id] = distribution.log_likelihood(last_feature.cpu()).cpu()
+                # score_likelihood[:, class_id] = distribution.log_likelihood(last_feature.cpu()).cpu()
+                score_likelihood[:, class_id] = torch.mean((last_feature.cpu() - distribution.mean.reshape(1, -1).cpu()) ** 2, dim=1)
 
             flatten_possible_class_id = possible_class_id.reshape(-1, 1).squeeze(-1).cpu() # [top_k1, top_k2, ..., top_kB]
 
@@ -896,7 +897,7 @@ class GaussianFeaturePrompt(Prompt):
 
             assert selected_score.shape == (B, top_k)
 
-            target_decision_indices = torch.argmax(selected_score, dim=1)
+            target_decision_indices = torch.argmin(selected_score, dim=1)
 
             target_decision = possible_class_id[range(B), target_decision_indices]
 
