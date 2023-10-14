@@ -868,8 +868,7 @@ class GaussianFeaturePrompt(Prompt):
 
         else:
 
-            flatten_possible_task_id = possible_task_id.reshape(-1, 1)  # flatten, shape == (B * self.top_k, 1)
-            flatten_possible_task_id = flatten_possible_task_id.squeeze(-1)
+            flatten_possible_task_id = possible_task_id.reshape(-1, 1).squeeze(-1).cpu()
 
             inp = input.unsqueeze(0)  # (1, B, C, H, W)
             input_repeat = inp.repeat(top_k, 1, 1, 1, 1)  # (top_k, B, C, H, W)
@@ -900,6 +899,27 @@ class GaussianFeaturePrompt(Prompt):
             target_decision_indices = torch.argmin(selected_score, dim=1)
 
             target_decision = possible_class_id[range(B), target_decision_indices]
+
+            x = random.randint(0, 2)
+            if x == 1:
+                print("###################")
+                print()
+                print("Possible class id:")
+                print(possible_class_id)
+                print()
+                print("Score likelihood:")
+                print(score_likelihood)
+                print()
+                print("Selected score:")
+                print(selected_score)
+                print()
+                print("Target decision:")
+                print(target_decision)
+                print()
+                print("Ground truth:")
+                print(ground_truth_class_id)
+                print()
+                print("###################")
 
             # assert target_decision.shape == (B, self.valid_out_dim)
             # target_decision = torch.argmax(target_decision, dim=1)
