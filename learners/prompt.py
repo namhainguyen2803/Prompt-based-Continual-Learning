@@ -566,8 +566,7 @@ class GaussianFeaturePrompt(Prompt):
         self.label_embedding = None
 
         self.distribution = dict()
-
-        self.validation_classifier = None
+        self.classifier_dict = dict()
 
         self.logit_normalize = True
         self.logit_norm = 0.1
@@ -591,9 +590,11 @@ class GaussianFeaturePrompt(Prompt):
     def _set_learnable_parameter(self):
 
         if len(self.config['gpuid']) > 1:
-            params_to_opt = list(self.model.module.prompt.parameters())
+            params_to_opt = list(self.model.module.prompt.parameters()) + \
+                            list(self.classifier_dict[self.model.task_id].parameters())
         else:
-            params_to_opt = list(self.model.prompt.parameters())
+            params_to_opt = list(self.model.prompt.parameters()) + \
+                            list(self.classifier_dict[self.model.task_id].parameters())
         return params_to_opt
 
     def _create_mapping_from_class_to_task(self):
@@ -602,6 +603,7 @@ class GaussianFeaturePrompt(Prompt):
                 self.mapping_class_to_task[class_id] = task_id
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, normalize_target=True):
+        self.create_classifier(self.model.task_id)  # create classifier for each task
         self.create_label_embedding(self.model.task_id)
         print(f"Create classifier for task id {self.model.task_id}")
         self._update_key_prototype(train_loader)
@@ -758,15 +760,15 @@ class GaussianFeaturePrompt(Prompt):
         feature, _ = self.model(x=inputs, get_logit=False, train=True,
                                 use_prompt=True, task_id=None, prompt_type=self.prompt_type)
 
-        # pseudo_mean = self.label_embedding(targets.unsqueeze(-1).to(torch.float32))
+        logit = self.classifier_dict[self.model.task_id](feature)
         pseudo_mean = self.label_embedding[targets.to(torch.int32), :]
 
         gaussian_penalty = torch.mean(torch.sum((feature - pseudo_mean) ** 2, dim=1))
 
         # ce with heuristic
         # if self.model.task_id == 0:
-        # total_loss = self.criterion(logit, targets.long()) + 0.001 * gaussian_penalty
-        total_loss = gaussian_penalty
+        total_loss = self.criterion(logit, targets.long()) + gaussian_penalty
+        # total_loss = gaussian_penalty
         # else:
         #     kl_div =
 
@@ -1011,6 +1013,12 @@ class GaussianFeaturePrompt(Prompt):
 
     def _update_key_prototype(self, train_loader):
         self.key_prototype = self._update_prototype_set(prototype_set=self.key_prototype, train_loader=train_loader)
+
+    def create_classifier(self, task_id):
+        feature_dim = self.model.prompt.emb_d
+        num_classes = len(self.tasks[task_id])
+        model = nn.Linear(in_features=feature_dim, out_features=num_classes).cuda()
+        self.classifier_dict[task_id] = model
 
 
 def plot_many_tsne(list_data, plotted_file):
