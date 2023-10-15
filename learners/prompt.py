@@ -142,7 +142,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         self.value_prototype = dict()
         self.avg_variance = dict()
         self.MLP_neck = None
-        self._num_anchor_key_prototype_per_class = 20
+        self._num_anchor_key_prototype_per_class = 5
         self._create_mapping_from_class_to_task()
 
         self.list_data = list()
@@ -210,7 +210,7 @@ class ContrastivePrototypicalPrompt(Prompt):
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
 
                 chosen_features = feature_set_for_class_id
-                mean_feature = torch.mean(chosen_features, dim=1)
+                # mean_feature = torch.mean(chosen_features, dim=1)
                 # mean_data = mean_feature.reshape(1, -1)
                 print(chosen_features.shape, prototype.shape)
                 dict_data = {
