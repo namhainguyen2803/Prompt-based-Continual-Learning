@@ -174,7 +174,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         Function to update prototype of previous class.
         """
         with torch.no_grad():
-            
+
             list_last_feature = list()
             list_output = list()
             for i, (x, y, task) in enumerate(train_loader):
@@ -211,11 +211,11 @@ class ContrastivePrototypicalPrompt(Prompt):
 
                 chosen_features = feature_set_for_class_id
                 mean_feature = torch.mean(chosen_features, dim=1)
-                mean_data = mean_feature.reshape(1, -1)
-                print(chosen_features.shape, mean_data.shape)
+                # mean_data = mean_feature.reshape(1, -1)
+                print(chosen_features.shape, prototype.shape)
                 dict_data = {
                     "data": chosen_features,
-                    "centroid": mean_data,
+                    "centroid": prototype,
                     "output_file": f"/tsne_plot_prompt_{class_id}.png"
                 }
                 self.list_data.append(dict_data)
@@ -994,7 +994,7 @@ def plot_many_tsne(list_data, task_id, plotted_file):
             plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.2)
             plt.scatter(centroid_class[:, 0], centroid_class[:, 1], marker='*', s=100, c=color, alpha=0.8)
 
-            plt.title('t-SNE Visualization')
+            plt.title(f'Class {i+1}')
             plt.xlabel('t-SNE Dimension 1')
             plt.ylabel('t-SNE Dimension 2')
             plt.grid(True)
@@ -1011,8 +1011,8 @@ def plot_many_tsne(list_data, task_id, plotted_file):
             data_class = X_tsne[b_data[0]:b_data[1], :]
             centroid_class = X_tsne[b_centroid[0]:b_centroid[1], :]
             color = color_list[i]
-            plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.2)
-            plt.scatter(centroid_class[:, 0], centroid_class[:, 1], marker='*', s=100, c=color, alpha=0.8)
+            plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.3)
+            plt.scatter(centroid_class[:, 0], centroid_class[:, 1], marker='*', s=100, c=color, alpha=1)
 
         plt.title('t-SNE Visualization')
         plt.xlabel('t-SNE Dimension 1')
