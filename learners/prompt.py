@@ -1011,7 +1011,7 @@ def plot_many_tsne(list_data, task_id, plotted_file):
             data_class = X_tsne[b_data[0]:b_data[1], :]
             centroid_class = X_tsne[b_centroid[0]:b_centroid[1], :]
             color = color_list[i]
-            plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.3)
+            plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.5)
             plt.scatter(centroid_class[:, 0], centroid_class[:, 1], marker='*', s=100, c=color, alpha=1)
 
         plt.title('t-SNE Visualization')
