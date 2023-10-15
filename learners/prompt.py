@@ -961,8 +961,8 @@ def plot_many_tsne(list_data, task_id, plotted_file):
         all_data = list()
         bookmark = list()
         for data_dict in list_data:
-            centroid = data_dict["centroid"]
-            data = data_dict["data"]
+            centroid = data_dict["centroid"].cpu()
+            data = data_dict["data"].cpu()
             num_data = data.shape[0]
             num_centroid = centroid.shape[0]
             print(num_data, num_centroid)
