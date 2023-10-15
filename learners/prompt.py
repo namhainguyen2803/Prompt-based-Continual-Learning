@@ -14,6 +14,9 @@ from .default import NormalNN, accumulate_acc
 from models.ClusterAlgorithm import KMeans, fit_kmeans_many_times
 from models.EmbeddingProjection import EmbeddingMLP, MLP
 
+import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
+import os
 
 class Prompt(NormalNN):
 
@@ -142,6 +145,8 @@ class ContrastivePrototypicalPrompt(Prompt):
         self._num_anchor_key_prototype_per_class = 20
         self._create_mapping_from_class_to_task()
 
+        self.list_data = list()
+
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag='cpp',
@@ -169,6 +174,7 @@ class ContrastivePrototypicalPrompt(Prompt):
         Function to update prototype of previous class.
         """
         with torch.no_grad():
+            
             list_last_feature = list()
             list_output = list()
             for i, (x, y, task) in enumerate(train_loader):
@@ -203,6 +209,18 @@ class ContrastivePrototypicalPrompt(Prompt):
                 prototype = cluster_algorithm.get_centroids()
                 prototype_set[class_id] = prototype  # (_num_anchor_per_class, emb_d)
 
+                chosen_features = feature_set_for_class_id
+                mean_feature = torch.mean(chosen_features, dim=1)
+                mean_data = mean_feature.reshape(1, -1)
+                print(chosen_features.shape, mean_data.shape)
+                dict_data = {
+                    "data": chosen_features,
+                    "centroid": mean_data,
+                    "output_file": f"/tsne_plot_prompt_{class_id}.png"
+                }
+                self.list_data.append(dict_data)
+
+            plot_many_tsne(self.list_data, self.model.task_id + 1, f"/tsne_plot_prompt_all.png")
             return prototype_set
 
     def _update_key_prototype(self, train_loader):
@@ -291,11 +309,6 @@ class ContrastivePrototypicalPrompt(Prompt):
             num_element_correct_task = torch.sum(same)
 
             return num_element_correct_task, B
-
-    def _reset_MLP_neck(self):
-        if self.MLP_neck is not None:
-            del self.MLP_neck
-        self.MLP_neck = EmbeddingMLP().cuda()
 
 
 class ProgressivePrompt(Prompt):
@@ -912,6 +925,103 @@ class GaussianFeaturePrompt(Prompt):
         model = nn.Linear(in_features=feature_dim, out_features=num_classes).cuda()
         self.classifier_dict[task_id] = model
 
+
+def plot_many_tsne(list_data, task_id, plotted_file):
+    color_list = [
+        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+        "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+        "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5",
+        "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5",
+        "#393b79", "#e6ab02", "#01a2d9", "#a6761d", "#ff33a1",
+        "#ff009b", "#a6a6a6", "#636363", "#d9d9d9", "#737373",
+        "#252525", "#525252", "#969696", "#cccccc", "#696969",
+        "#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00",
+        "#ffff33", "#a65628", "#f781bf", "#999999", "#66c2a5",
+        "#fc8d62", "#8da0cb", "#e78ac3", "#a6d854", "#ffd92f",
+        "#e5c494", "#b3b3cc", "#cab2d6", "#ff6666", "#c2c2f0",
+        "#ffb3e6", "#c2f0c2", "#ffcc99", "#c2c2a3", "#ff9999",
+        "#ffcc66", "#ffff99", "#ccffcc", "#cce6ff", "#99ccff",
+        "#cc99ff", "#ff99cc", "#ffccff", "#b3e0ff", "#ffcc00",
+        "#ccff00", "#99ff00", "#ffcc33", "#ccff33", "#99ff33",
+        "#ffcc66", "#ccff66", "#99ff66", "#ffcc99", "#ccff99",
+        "#99ff99", "#ffcccc", "#ccffcc", "#99ffcc", "#ffffff",
+        "#cccccc", "#333333", "#993300", "#009900", "#000099",
+        "#990099", "#009999", "#999900", "#990000", "#009900",
+        "#990099", "#009999", "#999900", "#009933", "#990033",
+        "#003399", "#993399", "#339900", "#339933", "#339966",
+        "#660033", "#660099", "#996600", "#ff0033", "#ff0099"
+    ]
+
+    plot_save_dir = f"plot/task_{task_id}"
+    if not os.path.exists(plot_save_dir):
+        os.makedirs(plot_save_dir)
+
+    with torch.no_grad():
+        tsne = TSNE(n_components=2, perplexity=500, random_state=0)
+        all_data = list()
+        bookmark = list()
+        for data_dict in list_data:
+            centroid = data_dict["centroid"]
+            data = data_dict["data"]
+            num_data = data.shape[0]
+            num_centroid = centroid.shape[0]
+            print(num_data, num_centroid)
+            if len(bookmark) == 0:
+                bookmark.append([[0, num_data], [num_data, num_data + num_centroid]])
+            else:
+                prev_len = bookmark[-1][1][1]
+                bookmark.append(
+                    [[prev_len, num_data + prev_len], [num_data + prev_len, num_data + prev_len + num_centroid]])
+
+            all_data.append(data)
+            all_data.append(centroid)
+
+        data = torch.cat(all_data, dim=0)
+        X_tsne = tsne.fit_transform(data)
+
+        for i in range(len(bookmark)):
+            b = bookmark[i]
+            b_data = b[0]
+            b_centroid = b[1]
+
+            data_class = X_tsne[b_data[0]:b_data[1], :]
+            centroid_class = X_tsne[b_centroid[0]:b_centroid[1], :]
+            color = color_list[i]
+
+            print(f"Class: {i}, data ranging: {b_data}, centroid ranging: {b_centroid}")
+
+            plt.figure(figsize=(8, 6))
+            plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.2)
+            plt.scatter(centroid_class[:, 0], centroid_class[:, 1], marker='*', s=100, c=color, alpha=0.8)
+
+            plt.title('t-SNE Visualization')
+            plt.xlabel('t-SNE Dimension 1')
+            plt.ylabel('t-SNE Dimension 2')
+            plt.grid(True)
+            plt.legend()
+            class_output_file = plot_save_dir + list_data[i]["output_file"]
+            plt.savefig(class_output_file)
+            plt.show()
+
+        plt.figure(figsize=(8, 6))
+        for i in range(len(bookmark)):
+            b = bookmark[i]
+            b_data = b[0]
+            b_centroid = b[1]
+            data_class = X_tsne[b_data[0]:b_data[1], :]
+            centroid_class = X_tsne[b_centroid[0]:b_centroid[1], :]
+            color = color_list[i]
+            plt.scatter(data_class[:, 0], data_class[:, 1], marker='o', s=20, c=color, alpha=0.2)
+            plt.scatter(centroid_class[:, 0], centroid_class[:, 1], marker='*', s=100, c=color, alpha=0.8)
+
+        plt.title('t-SNE Visualization')
+        plt.xlabel('t-SNE Dimension 1')
+        plt.ylabel('t-SNE Dimension 2')
+        plt.grid(True)
+        plt.legend()
+        all_class_save_file = plot_save_dir + plotted_file
+        plt.savefig(all_class_save_file)
+        plt.show()
 
 def check_tensor_nan(tensor, tensor_name="a"):
     has_nan = torch.isnan(tensor).any().item()
